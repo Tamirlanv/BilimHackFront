@@ -12,9 +12,15 @@
   gap: 24px;
 }
 
-.sectionHeader {
+.primarySection {
+  gap: 32px;
+}
+
+.sectionHeaderCentered {
   display: grid;
   gap: 8px;
+  justify-items: center;
+  text-align: center;
 }
 
 .sectionTitle {
@@ -22,69 +28,368 @@
   color: var(--ink-strong);
   font-size: 24px;
   line-height: 1.2;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .sectionSubtitle {
   margin: 0;
   color: var(--ink-muted);
   font-size: 16px;
-  line-height: 1.3;
+  line-height: 1.35;
   font-weight: 350;
 }
 
-.stats {
+.metricsGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 36px 28px;
+}
+
+.metricItem {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+}
+
+.metricLabel {
+  margin: 0;
+  color: var(--ink-strong);
+  font-size: 16px;
+  line-height: 1.35;
+  font-weight: 600;
+}
+
+.metricMeta {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 16px;
+  line-height: 1.35;
+  font-weight: 350;
+}
+
+.metricValue {
+  margin: 0;
+  color: var(--brand-primary);
+  font-size: 36px;
+  line-height: 1;
+  font-weight: 600;
+}
+
+.metricValueText {
+  margin: 0;
+  color: var(--brand-primary);
+  font-size: 36px;
+  line-height: 1;
+  font-weight: 600;
+}
+
+.attemptList {
+  display: grid;
+  gap: 18px;
+}
+
+.attemptCard {
   display: grid;
   gap: 16px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-.analyticsGrid {
-  display: grid;
-  gap: 16px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.list {
-  display: grid;
-  gap: 12px;
-}
-
-.attempt {
   border: none;
-  border-radius: var(--radius-md);
-  padding: 14px;
-  display: grid;
-  gap: 10px;
+  border-radius: 16px;
+  padding: 16px;
   background: #ffffff;
-  box-shadow: none;
-  transition: box-shadow 0.15s ease;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
 }
 
-.attempt:hover {
-  box-shadow: var(--shadow-soft);
-}
-
-.head {
+.attemptHead {
   display: flex;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
+}
+
+.attemptDate {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 14px;
+  line-height: 1.35;
+  font-weight: 350;
+}
+
+.attemptMeta {
+  display: flex;
   align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
   flex-wrap: wrap;
 }
 
-.meta {
+.attemptScore {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.35;
+  font-weight: 600;
+}
+
+.scoreSuccess {
+  color: #1bb35e;
+}
+
+.scoreWarning {
+  color: #f09a33;
+}
+
+.scoreDanger {
+  color: #df3e3e;
+}
+
+.metaStrong {
+  margin: 0;
+  color: var(--ink-strong);
+  font-size: 14px;
+  line-height: 1.35;
+  font-weight: 600;
+}
+
+.attemptBody {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 12px;
+}
+
+.attemptIcon {
+  width: 60px;
+  height: 60px;
+  object-fit: contain;
+}
+
+.attemptInfo {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.attemptTitle {
+  margin: 0;
+  color: var(--ink-strong);
+  font-size: 16px;
+  line-height: 1.35;
+  font-weight: 600;
+}
+
+.attemptTopics {
+  margin: 0;
   color: var(--ink-muted);
-  font-size: 0.92rem;
+  font-size: 14px;
+  line-height: 1.35;
+  font-weight: 350;
+}
+
+.resultButton {
+  min-height: 40px;
+  border-radius: 8px;
+  font-size: 16px;
+  line-height: 1.2;
+  font-weight: 350;
+}
+
+.showMoreButton {
+  display: block;
+  margin: 12px auto 0;
+  border: none;
+  padding: 0;
+  background: transparent;
+  color: var(--ink-muted);
+  font-size: 14px;
+  line-height: 1.35;
+  font-weight: 350;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.recommendGrid {
+  display: grid;
+  gap: 24px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.recommendCard {
+  display: grid;
+  gap: 14px;
+  border: none;
+  border-radius: 16px;
+  padding: 16px;
+  background: #ffffff;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
+}
+
+.recommendLabel {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 16px;
+  line-height: 1.35;
+  font-weight: 350;
+}
+
+.recommendTop {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 12px;
+}
+
+.recommendIcon {
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+}
+
+.recommendInfo {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.recommendTitle {
+  margin: 0;
+  color: var(--ink-strong);
+  font-size: 16px;
+  line-height: 1.35;
+  font-weight: 600;
+}
+
+.recommendText {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 14px;
+  line-height: 1.25;
+  font-weight: 350;
+}
+
+.recommendAction {
+  min-height: 40px;
+  border-radius: 8px;
+  font-size: 16px;
+  line-height: 1.2;
+  font-weight: 350;
+}
+
+.emptyState {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+}
+
+.emptyText {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 16px;
+  line-height: 1.35;
+  font-weight: 350;
+}
+
+.footer {
+  margin-top: 8px;
+  text-align: center;
+  color: var(--ink-muted);
+  font-size: 16px;
+  line-height: 1.35;
+  font-weight: 350;
+}
+
+@media (max-width: 1120px) {
+  .metricsGrid {
+    gap: 28px 20px;
+  }
+
+  .attemptMeta {
+    gap: 10px;
+  }
 }
 
 @media (max-width: 960px) {
   .page {
-    gap: 80px;
+    gap: 64px;
   }
 
-  .stats,
-  .analyticsGrid {
+  .metricsGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .attemptHead {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .attemptMeta {
+    justify-content: flex-start;
+  }
+
+  .recommendGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .page {
+    gap: 56px;
+    padding-bottom: 36px;
+  }
+
+  .section {
+    gap: 20px;
+  }
+
+  .sectionHeaderCentered {
+    justify-items: start;
+    text-align: left;
+  }
+
+  .metricsGrid {
     grid-template-columns: 1fr;
+    gap: 20px;
+  }
+
+  .metricValue,
+  .metricValueText {
+    font-size: 36px;
+  }
+
+  .attemptCard {
+    padding: 14px;
+  }
+
+  .attemptBody {
+    align-items: flex-start;
+  }
+
+  .attemptIcon {
+    width: 52px;
+    height: 52px;
+  }
+
+  .attemptMeta {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    justify-items: start;
+    gap: 6px 12px;
+  }
+
+  .attemptScore {
+    grid-column: 1 / -1;
+  }
+
+  .recommendGrid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .recommendIcon {
+    width: 48px;
+    height: 48px;
+  }
+
+  .recommendTitle {
+    font-size: 16px;
   }
 }

@@ -532,45 +532,9 @@ def _build_test_response(test: Test) -> TestResponse:
 
 
 def _build_question_tts_narration(*, question: Question, language: PreferredLanguage) -> str:
-    parts: list[str] = []
-
     base = str(question.tts_text or question.prompt or "").strip()
     base = _strip_prompt_variant_suffix(base)
-    if base:
-        parts.append(base)
-
-    options = []
-    if isinstance(question.options_json, dict):
-        options = list(question.options_json.get("options", []) or [])
-    if options:
-        parts.append("Жауап нұсқалары:" if language == PreferredLanguage.kz else "Варианты ответа:")
-        for option in options:
-            if not isinstance(option, dict):
-                continue
-            option_id = option.get("id")
-            label = _extract_option_label(str(option.get("text", "")).strip(), option_id if isinstance(option_id, int) else 0)
-            text = _strip_option_prefix(str(option.get("text", "")).strip())
-            if text:
-                parts.append(f"{label}. {text}.")
-
-    left_items: list[str] = []
-    right_items: list[str] = []
-    if isinstance(question.options_json, dict):
-        left_items = [str(item).strip() for item in (question.options_json.get("left", []) or []) if str(item).strip()]
-        right_items = [str(item).strip() for item in (question.options_json.get("right", []) or []) if str(item).strip()]
-    if left_items and right_items:
-        if language == PreferredLanguage.kz:
-            parts.append("Сол жақтағы элементтер:")
-            parts.append(". ".join(left_items) + ".")
-            parts.append("Оң жақтағы элементтер:")
-            parts.append(". ".join(right_items) + ".")
-        else:
-            parts.append("Элементы слева:")
-            parts.append(". ".join(left_items) + ".")
-            parts.append("Элементы справа:")
-            parts.append(". ".join(right_items) + ".")
-
-    return " ".join(part for part in parts if part).strip()
+    return base
 
 
 def _strip_prompt_variant_suffix(text: str) -> str:

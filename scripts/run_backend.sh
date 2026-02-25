@@ -14,6 +14,20 @@ set -a
 source "$ROOT_DIR/.env"
 set +a
 
+TTS_PROVIDER_VALUE="${TTS_PROVIDER:-auto}"
+if [ "$TTS_PROVIDER_VALUE" = "auto" ] || [ "$TTS_PROVIDER_VALUE" = "edge_tts" ] || [ "$TTS_PROVIDER_VALUE" = "edge" ]; then
+  if ! python3 - <<'PY'
+import importlib.util
+import sys
+
+sys.exit(0 if importlib.util.find_spec("edge_tts") else 1)
+PY
+  then
+    echo "edge-tts is missing in .venv. Installing backend dependencies..."
+    pip install -r "$ROOT_DIR/backend/requirements.txt"
+  fi
+fi
+
 python3 - <<'PY'
 import os
 import sys

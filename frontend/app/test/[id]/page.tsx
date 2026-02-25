@@ -157,6 +157,9 @@ export default function TestRunnerPage() {
     ttsRequestIdRef.current += 1;
 
     if (audioElementRef.current) {
+      audioElementRef.current.onplay = null;
+      audioElementRef.current.onended = null;
+      audioElementRef.current.onerror = null;
       audioElementRef.current.pause();
       audioElementRef.current.src = "";
       audioElementRef.current = null;
@@ -242,8 +245,12 @@ export default function TestRunnerPage() {
         const audio = new Audio(objectUrl);
         audioElementRef.current = audio;
 
-        audio.onplay = () => setAudioPlaying(true);
+        audio.onplay = () => {
+          if (requestId !== ttsRequestIdRef.current) return;
+          setAudioPlaying(true);
+        };
         audio.onended = () => {
+          if (requestId !== ttsRequestIdRef.current) return;
           setAudioLoading(false);
           setAudioPlaying(false);
           if (audioObjectUrlRef.current) {
@@ -253,6 +260,7 @@ export default function TestRunnerPage() {
           audioElementRef.current = null;
         };
         audio.onerror = () => {
+          if (requestId !== ttsRequestIdRef.current) return;
           setAudioLoading(false);
           setAudioPlaying(false);
           if (audioObjectUrlRef.current) {
@@ -686,39 +694,8 @@ function pickBestVoice(voices: SpeechSynthesisVoice[], lang: string): SpeechSynt
 }
 
 function buildAudioNarration(question: Question, language: "RU" | "KZ"): string {
-  const parts: string[] = [];
   const basePrompt = sanitizeQuestionPrompt((question.tts_text || question.prompt || "").trim());
-  if (basePrompt) {
-    parts.push(basePrompt);
-  }
-
-  const options = question.options_json?.options || [];
-  if (options.length > 0) {
-    parts.push(language === "KZ" ? "Жауап нұсқалары:" : "Варианты ответа:");
-    for (const option of options) {
-      const label = extractOptionLabel(option.text, option.id);
-      const text = stripOptionPrefix(option.text);
-      parts.push(`${label}. ${text}.`);
-    }
-  }
-
-  const left = question.options_json?.left || [];
-  const right = question.options_json?.right || [];
-  if (left.length && right.length) {
-    if (language === "KZ") {
-      parts.push("Сол жақтағы элементтер:");
-      parts.push(left.join(". "));
-      parts.push("Оң жақтағы элементтер:");
-      parts.push(right.join(". "));
-    } else {
-      parts.push("Элементы слева:");
-      parts.push(left.join(". "));
-      parts.push("Элементы справа:");
-      parts.push(right.join(". "));
-    }
-  }
-
-  return parts.join(" ");
+  return basePrompt;
 }
 
 function sanitizeQuestionPrompt(prompt: string): string {

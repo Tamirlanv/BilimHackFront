@@ -10,8 +10,10 @@ from app.api.teacher import router as teacher_router
 from app.api.tests import router as tests_router
 from app.core.config import settings
 from app.db.init_db import init_db
+from app.services.tts import tts_service
 
 logging.basicConfig(level=settings.log_level.upper())
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title=settings.app_name,
@@ -32,6 +34,7 @@ app.add_middleware(
 @app.on_event("startup")
 def startup_event() -> None:
     init_db()
+    logger.info("TTS provider: %s", type(tts_service._provider).__name__)
 
 
 @app.get("/")
