@@ -5,7 +5,7 @@
   font-size: 0.9rem;
   font-weight: 600;
   letter-spacing: 0.01em;
-  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -18,18 +18,13 @@
   cursor: not-allowed;
 }
 
-.button:not(:disabled):hover {
-  transform: translateY(-1px);
-}
-
 .primary {
   color: #fff;
-  background: linear-gradient(120deg, var(--brand-primary) 0%, var(--brand-secondary) 100%);
-  box-shadow: 0 8px 18px rgba(106, 99, 245, 0.2);
+  background: var(--brand-primary);
 }
 
 .primary:not(:disabled):hover {
-  box-shadow: var(--shadow-glow);
+  background: #5e58dc;
 }
 
 .secondary {
@@ -57,7 +52,7 @@
 
 .danger {
   color: #fff;
-  background: linear-gradient(120deg, #ea4d59, #ce2e44);
+  background: #ce2e44;
 }
 
 .block {

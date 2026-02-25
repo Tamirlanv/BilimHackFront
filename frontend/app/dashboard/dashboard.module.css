@@ -1,16 +1,28 @@
 .page {
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
   display: grid;
-  gap: 80px;
+  gap: 104px;
+  padding-bottom: 56px;
+}
+
+.pageLoading {
+  font-size: 16px;
+  font-weight: 350;
+  color: var(--ink-muted);
 }
 
 .section {
   display: grid;
-  gap: 24px;
+  gap: 28px;
 }
 
-.sectionHeader {
+.sectionHeaderCentered {
   display: grid;
   gap: 8px;
+  justify-items: center;
+  text-align: center;
 }
 
 .sectionTitle {
@@ -18,115 +30,221 @@
   color: var(--ink-strong);
   font-size: 24px;
   line-height: 1.2;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .sectionSubtitle {
   margin: 0;
   color: var(--ink-muted);
   font-size: 16px;
+  line-height: 1.35;
+  font-weight: 350;
+}
+
+.statsRow {
+  display: grid;
+  gap: 36px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.statItem {
+  display: grid;
+  gap: 4px;
+}
+
+.statLabel {
+  margin: 0;
+  color: var(--ink-strong);
+  font-size: 16px;
+  line-height: 1.35;
+  font-weight: 600;
+}
+
+.statMeta {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 16px;
+  line-height: 1.35;
+  font-weight: 350;
+}
+
+.statValue {
+  margin: 4px 0 0;
+  color: var(--brand-primary);
+  font-size: 36px;
+  line-height: 1.1;
+  font-weight: 600;
+}
+
+.cardGrid {
+  display: grid;
+  gap: 24px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.recentCard,
+.recommendCard {
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.06);
+  transition: box-shadow 0.15s ease;
+}
+
+.recentCard:hover,
+.recommendCard:hover {
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.1);
+}
+
+.cardDate {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 14px;
+  line-height: 1.35;
+  font-weight: 350;
+}
+
+.cardTop {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 14px;
+  align-items: center;
+}
+
+.cardIcon {
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+}
+
+.cardInfo {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.cardTitle {
+  margin: 0;
+  color: var(--ink-strong);
+  font-size: 16px;
+  line-height: 1.35;
+  font-weight: 600;
+}
+
+.cardMeta {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 16px;
   line-height: 1.3;
   font-weight: 350;
 }
 
-.statGrid {
-  display: grid;
-  gap: 16px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+.scoreValue {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.3;
+  font-weight: 600;
 }
 
-.recentList {
+.scoreSuccess {
+  color: #1bb35e;
+}
+
+.scoreWarning {
+  color: #c0ac19;
+}
+
+.scoreDanger {
+  color: #df3e3e;
+}
+
+.cardActions {
   display: grid;
+  grid-template-columns: 1fr auto;
   gap: 12px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.recentItem {
-  display: grid;
-  gap: 10px;
-  border: none;
-  border-radius: var(--radius-md);
-  background: #ffffff;
-  padding: 14px;
-  box-shadow: none;
-  transition: box-shadow 0.15s ease;
-}
-
-.recentItem:hover {
-  box-shadow: var(--shadow-soft);
-}
-
-.recentItemHead {
-  display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
 }
 
-.recentMeta {
-  font-size: 0.9rem;
+.cardActions button:first-child {
+  min-height: 40px;
+  font-size: 16px;
+  line-height: 1.2;
+}
+
+.linkButton {
+  border: none;
+  background: transparent;
+  color: var(--ink-strong);
+  font-size: 16px;
+  line-height: 1.3;
+  font-weight: 350;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: none;
+  text-underline-offset: 2px;
+}
+
+.linkButton:hover {
+  text-decoration: underline;
+}
+
+.showAllButton {
+  margin: 2px auto 0;
+  border: none;
+  background: transparent;
   color: var(--ink-muted);
+  font-size: 16px;
+  line-height: 1.3;
+  font-weight: 350;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .emptyState {
   display: grid;
+  justify-items: center;
   gap: 12px;
 }
 
-.sectionActions {
-  margin-top: 14px;
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.recommendGrid {
-  display: grid;
-  gap: 12px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.recommendCard {
-  border: none;
-  border-radius: var(--radius-md);
-  background: #ffffff;
-  padding: 14px;
-  display: grid;
-  gap: 10px;
-  box-shadow: none;
-  transition: box-shadow 0.15s ease;
-}
-
-.recommendCard:hover {
-  box-shadow: var(--shadow-soft);
-}
-
-.recommendBadge {
-  width: fit-content;
-}
-
-.recommendTitle {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.recommendText {
+.emptyText {
   margin: 0;
   color: var(--ink-muted);
   font-size: 16px;
+  line-height: 1.35;
   font-weight: 350;
-  line-height: 1.3;
 }
 
-@media (max-width: 960px) {
+.footer {
+  margin-top: 8px;
+  text-align: center;
+  color: var(--ink-muted);
+  font-size: 16px;
+  line-height: 1.35;
+  font-weight: 350;
+}
+
+@media (max-width: 1200px) {
+  .cardGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
   .page {
     gap: 80px;
   }
 
-  .statGrid,
-  .recommendGrid,
-  .recentList {
+  .statsRow,
+  .cardGrid {
     grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .sectionHeaderCentered {
+    justify-items: start;
+    text-align: left;
   }
 }

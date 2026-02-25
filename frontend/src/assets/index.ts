@@ -1,4 +1,4 @@
-const ICONS_VERSION = "20260225-3";
+const ICONS_VERSION = "20260225-4";
 
 export const assetPaths = {
   logo: {
@@ -9,6 +9,9 @@ export const assetPaths = {
     wand: `/assets/icons/wand.svg?v=${ICONS_VERSION}`,
     book: `/assets/icons/book.svg?v=${ICONS_VERSION}`,
     spark: `/assets/icons/spark.svg?v=${ICONS_VERSION}`,
+    repeat: `/assets/icons/mi_repeat.svg?v=${ICONS_VERSION}`,
+    weakTopic: `/assets/icons/lucide_arrow-up.svg?v=${ICONS_VERSION}`,
+    lesson: `/assets/icons/streamline_class-lesson-solid.svg?v=${ICONS_VERSION}`,
     text: `/assets/icons/si_text-fill.svg?v=${ICONS_VERSION}`,
     headphones: `/assets/icons/ic_round-headphones.svg?v=${ICONS_VERSION}`,
     microphone: `/assets/icons/tabler_microphone-filled.svg?v=${ICONS_VERSION}`,
