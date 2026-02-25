@@ -11,6 +11,13 @@ from app.models import Group, GroupMembership, PreferredLanguage, StudentProfile
 DEMO_SUBJECTS = [
     {"name_ru": "Математика", "name_kz": "Математика"},
     {"name_ru": "Физика", "name_kz": "Физика"},
+    {"name_ru": "Русский язык", "name_kz": "Орыс тілі"},
+    {"name_ru": "Английский язык", "name_kz": "Ағылшын тілі"},
+    {"name_ru": "Биология", "name_kz": "Биология"},
+    {"name_ru": "Информатика", "name_kz": "Информатика"},
+    {"name_ru": "Алгебра", "name_kz": "Алгебра"},
+    {"name_ru": "Геометрия", "name_kz": "Геометрия"},
+    {"name_ru": "Химия", "name_kz": "Химия"},
     {"name_ru": "История", "name_kz": "Тарих"},
 ]
 

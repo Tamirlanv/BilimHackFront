@@ -25,7 +25,7 @@
 .primary {
   color: #fff;
   background: linear-gradient(120deg, var(--brand-primary) 0%, var(--brand-secondary) 100%);
-  box-shadow: 0 8px 18px rgba(93, 107, 255, 0.2);
+  box-shadow: 0 8px 18px rgba(106, 99, 245, 0.2);
 }
 
 .primary:not(:disabled):hover {

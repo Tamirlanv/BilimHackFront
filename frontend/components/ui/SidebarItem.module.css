@@ -17,9 +17,9 @@
 }
 
 .active {
-  color: #273a98;
-  background: #edf1ff;
-  border-color: #cfd9ff;
+  color: var(--brand-primary);
+  background: #f1f0ff;
+  border-color: color-mix(in srgb, var(--brand-primary) 30%, #ffffff);
 }
 
 .icon {

@@ -1,20 +1,20 @@
 :root {
   --font-body: "Inter", "Segoe UI", "Roboto", sans-serif;
 
-  --brand-primary: #5d6bff;
-  --brand-secondary: #7a85ff;
-  --brand-accent: #aeb8ff;
-  --brand-paper: #f5f7fc;
-  --brand-ink: #111827;
-  --brand-mist: #eef2ff;
-  --brand-glow: #dbe2ff;
+  --brand-primary: #6A63F5;
+  --brand-secondary: #6A63F5;
+  --brand-accent: #d9d7ff;
+  --brand-paper: #f1f1f7;
+  --brand-ink: #262626;
+  --brand-mist: #ececf4;
+  --brand-glow: #ddd9ff;
 
-  --ink-strong: #111827;
-  --ink-muted: #5d677b;
+  --ink-strong: #262626;
+  --ink-muted: #626262;
 
-  --line-color: #e5eaf2;
+  --line-color: #e2e2eb;
   --panel-base: #ffffff;
-  --panel-elevated: #f9fbff;
+  --panel-elevated: #f9f9ff;
 
   --radius-sm: 8px;
   --radius-md: 12px;
@@ -22,7 +22,7 @@
   --radius-pill: 999px;
 
   --shadow-soft: 0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 24px rgba(15, 23, 42, 0.06);
-  --shadow-glow: 0 6px 18px rgba(93, 107, 255, 0.28);
+  --shadow-glow: 0 6px 18px rgba(106, 99, 245, 0.28);
 }
 
 * {
@@ -38,11 +38,12 @@ body {
 
 body {
   font-family: var(--font-body);
+  letter-spacing: 0.007em;
   color: var(--ink-strong);
   background:
-    radial-gradient(circle at 100% 0, rgba(93, 107, 255, 0.1), transparent 35%),
-    radial-gradient(circle at 0 20%, rgba(122, 133, 255, 0.08), transparent 35%),
-    #f4f7fb;
+    radial-gradient(circle at 100% 0, rgba(106, 99, 245, 0.1), transparent 35%),
+    radial-gradient(circle at 0 20%, rgba(106, 99, 245, 0.08), transparent 35%),
+    #ececf4;
 }
 
 h1,
@@ -87,7 +88,7 @@ select:focus,
 textarea:focus {
   outline: none;
   border-color: var(--brand-primary);
-  box-shadow: 0 0 0 3px rgba(93, 107, 255, 0.16);
+  box-shadow: 0 0 0 3px rgba(106, 99, 245, 0.16);
 }
 
 label {
@@ -176,9 +177,9 @@ img {
 }
 
 .selectCardActive {
-  border-color: #95a2ff;
-  background: linear-gradient(180deg, #ffffff, #f4f7ff);
-  box-shadow: inset 0 0 0 1px rgba(93, 107, 255, 0.14);
+  border-color: var(--brand-primary);
+  background: linear-gradient(180deg, #ffffff, #f4f3ff);
+  box-shadow: inset 0 0 0 1px rgba(106, 99, 245, 0.14);
 }
 
 .selectCardTitle {
@@ -216,7 +217,7 @@ img {
 .table th {
   color: var(--ink-muted);
   font-weight: 700;
-  background: #f8fafe;
+  background: #f5f5fb;
 }
 
 .authPage {
@@ -246,7 +247,7 @@ img {
   width: 42px;
   height: 42px;
   border-radius: 12px;
-  border: 1px solid #d7deee;
+  border: 1px solid var(--line-color);
 }
 
 .authTitle {

@@ -3,7 +3,7 @@
   border: 1px solid var(--line-color);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-soft);
-  padding: 18px;
+  padding: 22px;
 }
 
 .title {
@@ -15,13 +15,13 @@
 }
 
 .subtitle {
-  margin: 6px 0 0;
+  margin: 8px 0 0;
   color: var(--ink-muted);
   font-size: 0.9rem;
 }
 
 .content {
-  margin-top: 14px;
+  margin-top: 18px;
 }
 
 .header {

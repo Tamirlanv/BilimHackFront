@@ -32,7 +32,7 @@
   width: 36px;
   height: 36px;
   border-radius: 10px;
-  border: 1px solid #d5dded;
+  border: 1px solid var(--line-color);
 }
 
 .brandText {
@@ -165,7 +165,7 @@
   width: 28px;
   height: 28px;
   border-radius: 999px;
-  background: linear-gradient(130deg, var(--brand-primary), #c790ff);
+  background: var(--brand-primary);
   color: #fff;
   display: inline-flex;
   align-items: center;
@@ -191,9 +191,9 @@
 }
 
 .content {
-  padding: 20px;
+  padding: 28px;
   display: grid;
-  gap: 14px;
+  gap: 24px;
 }
 
 .mobileMenuButton {
@@ -265,6 +265,6 @@
   }
 
   .content {
-    padding: 14px;
+    padding: 18px;
   }
 }
