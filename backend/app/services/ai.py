@@ -182,10 +182,8 @@ class AIService:
                 rotated = list(templates)
                 rng.shuffle(rotated)
                 for template in rotated:
-                    template_content_key = self._library_content_key(str(template.get("prompt", "")))
-                    if track_content_uniqueness and template_content_key and template_content_key in used_content_keys:
-                        continue
                     prepared = dict(template)
+                    prepared_prompt = str(prepared.get("prompt", ""))
                     if round_idx > 0:
                         prepared["prompt"] = self._build_library_prompt_variant(
                             prompt=str(template.get("prompt", "")),
@@ -193,6 +191,10 @@ class AIService:
                             variant_index=round_idx,
                             salt=library_index,
                         )
+                        prepared_prompt = str(prepared.get("prompt", ""))
+                    template_content_key = self._library_content_key(prepared_prompt)
+                    if track_content_uniqueness and template_content_key and template_content_key in used_content_keys:
+                        continue
                     question = self._build_question_from_bank_template(
                         template=prepared,
                         subject=subject,
@@ -249,9 +251,6 @@ class AIService:
             extra_round += 1
             for difficulty, templates in template_buckets:
                 for template in templates:
-                    template_content_key = self._library_content_key(str(template.get("prompt", "")))
-                    if track_content_uniqueness and template_content_key and template_content_key in used_content_keys:
-                        continue
                     prepared = dict(template)
                     prepared["prompt"] = self._build_library_prompt_variant(
                         prompt=str(template.get("prompt", "")),
@@ -259,6 +258,9 @@ class AIService:
                         variant_index=extra_round,
                         salt=library_index,
                     )
+                    template_content_key = self._library_content_key(str(prepared.get("prompt", "")))
+                    if track_content_uniqueness and template_content_key and template_content_key in used_content_keys:
+                        continue
                     question = self._build_question_from_bank_template(
                         template=prepared,
                         subject=subject,
@@ -530,8 +532,24 @@ class AIService:
                     focus_topics=focus_topics,
                 )
             except Exception as exc:  # noqa: BLE001
-                logger.warning("DeepSeek generation failed, fallback to mock: %s", exc)
+                logger.warning("DeepSeek generation failed, fallback to validated library: %s", exc)
 
+        fallback_questions = self.generate_library_only_questions(
+            subject=subject,
+            language=language,
+            mode=mode,
+            num_questions=num_questions,
+            seed=f"{seed}-library-fallback",
+            difficulty_order=[difficulty, DifficultyLevel.medium, DifficultyLevel.easy, DifficultyLevel.hard],
+        )
+        if len(fallback_questions) >= num_questions:
+            return GeneratedTestPayload(seed=seed, questions=fallback_questions[:num_questions])
+
+        # Library-only fallback should still produce a non-empty test when templates exist.
+        if fallback_questions:
+            return GeneratedTestPayload(seed=seed, questions=fallback_questions)
+
+        # Final safety net for unknown subjects.
         return self._generate_test_mock(
             subject=subject,
             difficulty=difficulty,
@@ -1046,12 +1064,13 @@ Seed уникальности: {seed}
         for index in range(count):
             base = dict(rotation[index % len(rotation)])
             base_prompt = str(base.get("prompt", "")).strip()
-            base["template_content_key"] = self._library_content_key(base_prompt)
-            base["prompt"] = self._variant_prompt(
+            variant_prompt = self._variant_prompt(
                 base_prompt,
                 language=language,
                 variant_index=variant_offset + index + 1,
             )
+            base["prompt"] = variant_prompt
+            base["template_content_key"] = self._library_content_key(variant_prompt)
             variants.append(
                 self._build_question_from_bank_template(
                     template=base,
@@ -1136,59 +1155,32 @@ Seed уникальности: {seed}
             return base
 
         if language == PreferredLanguage.ru:
-            openers = [
-                "Рассмотрите учебный контекст.",
-                "Проанализируйте формулировку и выберите точный ответ.",
-                "Опирайтесь на ключевое правило темы.",
-                "Сопоставьте условие с базовым определением.",
-                "Проверьте причинно-следственную связь в вопросе.",
-                "Используйте базовый факт и исключите лишнее.",
-                "Сначала определите главную идею задания.",
-                "Сравните варианты и выберите обоснованный ответ.",
-                "Оцените условие с точки зрения учебной практики.",
-                "Вспомните основной термин и его применение.",
-                "Проверьте условие на логическую точность.",
-                "Сконцентрируйтесь на ключевом элементе темы.",
-            ]
-            closers = [
-                "Сделайте выбор только после короткой проверки условия.",
-                "Не пропускайте уточнения в формулировке задания.",
-                "Сверьте ответ с основным правилом темы.",
-                "Исключите варианты с подменой понятий.",
-                "Ориентируйтесь на точный учебный термин.",
-                "Проверьте, что ответ опирается на факт, а не догадку.",
-                "Учитывайте базовый подход из школьной программы.",
-                "Сначала отметьте верный принцип, затем выбирайте вариант.",
+            prefixes = [
+                "Выберите правильный ответ:",
+                "Укажите верный вариант:",
+                "Какой ответ правильный?",
+                "Определите корректный вариант:",
+                "Найдите правильный ответ:",
+                "Выберите наиболее точный ответ:",
+                "Какой вариант соответствует условию?",
+                "Укажите точный ответ:",
             ]
         else:
-            openers = [
-                "Оқу контекстін ескеріңіз.",
-                "Тұжырымды талдап, нақты жауапты таңдаңыз.",
-                "Тақырыптың негізгі ережесіне сүйеніңіз.",
-                "Шартты базалық анықтамамен салыстырыңыз.",
-                "Сұрақтағы себеп-салдар байланысын тексеріңіз.",
-                "Негізгі фактіні қолданып, артық нұсқаларды алып тастаңыз.",
-                "Алдымен тапсырманың басты идеясын анықтаңыз.",
-                "Нұсқаларды салыстырып, дәлелді жауап таңдаңыз.",
-                "Шартты оқу практикасы тұрғысынан бағалаңыз.",
-                "Негізгі термин мен оның қолданылуын еске түсіріңіз.",
-                "Шарттың логикалық дәлдігін тексеріңіз.",
-                "Тақырыптың түйінді бөлігіне назар аударыңыз.",
-            ]
-            closers = [
-                "Жауап бермес бұрын шартты қысқаша қайта тексеріңіз.",
-                "Тапсырма тұжырымындағы нақтылауларды өткізіп алмаңыз.",
-                "Жауапты тақырыптың негізгі ережесімен салыстырыңыз.",
-                "Ұғымдар шатастырылған нұсқаларды алып тастаңыз.",
-                "Нақты оқу терминіне сүйеніңіз.",
-                "Жауаптың жорамалға емес, фактіге негізделгенін тексеріңіз.",
-                "Мектеп бағдарламасындағы базалық тәсілді қолданыңыз.",
-                "Алдымен дұрыс принципті анықтап, содан кейін таңдаңыз.",
+            prefixes = [
+                "Дұрыс жауапты таңдаңыз:",
+                "Дұрыс нұсқаны көрсетіңіз:",
+                "Қай жауап дұрыс?",
+                "Дұрыс нұсқаны анықтаңыз:",
+                "Дұрыс жауапты табыңыз:",
+                "Ең дәл жауапты таңдаңыз:",
+                "Қай нұсқа шартқа сәйкес?",
+                "Нақты дұрыс жауапты көрсетіңіз:",
             ]
 
-        opener = openers[variant_index % len(openers)]
-        closer = closers[(variant_index // len(openers)) % len(closers)]
-        return f"{opener} {base} {closer}".strip()
+        prefix = prefixes[variant_index % len(prefixes)]
+        if base.lower().startswith(prefix.lower()):
+            return base
+        return f"{prefix} {base}".strip()
 
     @staticmethod
     def _build_library_prompt_variant(
@@ -1414,8 +1406,16 @@ Seed уникальности: {seed}
         options = [str(item).strip() for item in (template.get("options") or []) if str(item).strip()]
         correct_option_ids = [int(item) for item in (template.get("correct_option_ids") or [])]
         if not options:
-            options = self._fallback_option_texts(topic=topic, language=language, count=option_count)
-            correct_option_ids = [0]
+            return self._make_short_text_question(
+                prompt=prompt,
+                topic=topic,
+                explanation_json=explanation_payload,
+                language=language,
+                source_correct_answer_json={
+                    "keywords": [str(item).strip() for item in (template.get("keywords") or []) if str(item).strip()],
+                    "sample_answer": str(template.get("sample_answer", "")).strip(),
+                },
+            )
 
         options, correct_option_ids = self._expand_and_shuffle_options_from_template(
             subject=subject,
@@ -1426,6 +1426,25 @@ Seed уникальности: {seed}
             correct_option_ids=correct_option_ids,
             rng=rng,
         )
+        if len(options) < 2:
+            return self._make_short_text_question(
+                prompt=prompt,
+                topic=topic,
+                explanation_json=explanation_payload,
+                language=language,
+                source_correct_answer_json={
+                    "keywords": [str(item).strip() for item in (template.get("keywords") or []) if str(item).strip()],
+                    "sample_answer": str(template.get("sample_answer", "")).strip(),
+                },
+            )
+
+        correct_option_ids = [
+            int(item)
+            for item in correct_option_ids
+            if isinstance(item, int) and 0 <= int(item) < len(options)
+        ]
+        if not correct_option_ids:
+            correct_option_ids = [0]
         question_type = QuestionType.multi_choice if len(correct_option_ids) > 1 else QuestionType.single_choice
         return GeneratedQuestionPayload(
             type=question_type,
@@ -1450,12 +1469,22 @@ Seed уникальности: {seed}
         option_count = self._choice_option_count(difficulty)
         safe_options = [value for value in options if value]
         if not safe_options:
-            safe_options = self._fallback_option_texts(topic=topic, language=language, count=option_count)
+            return [], []
 
         safe_correct_ids = [value for value in correct_option_ids if 0 <= value < len(safe_options)]
         if not safe_correct_ids:
             safe_correct_ids = [0]
 
+        subject_distractors = get_distractors(subject_name_ru=subject.name_ru, language=language)
+        topic_tokens = {
+            token
+            for token in re.findall(r"[a-zA-Zа-яА-ЯәіңғүұқөһӘІҢҒҮҰҚӨҺ0-9]+", topic.lower())
+            if len(token) >= 4
+        }
+        topic_matched_distractors = [
+            item for item in subject_distractors
+            if any(token in item.lower() for token in topic_tokens)
+        ]
         distractor_pool = [
             *self._contextual_distractors_from_options(
                 options=safe_options,
@@ -1463,8 +1492,7 @@ Seed уникальности: {seed}
                 needed=option_count * 2,
                 rng=rng,
             ),
-            *get_distractors(subject_name_ru=subject.name_ru, language=language),
-            *self._fallback_option_texts(topic=topic, language=language, count=option_count * 2),
+            *topic_matched_distractors,
         ]
         seen = {item.lower() for item in safe_options}
         for distractor in distractor_pool:
@@ -1475,6 +1503,10 @@ Seed уникальности: {seed}
                 continue
             safe_options.append(str(distractor).strip())
             seen.add(key)
+
+        min_required_options = min(4, option_count)
+        if len(safe_options) < min_required_options:
+            return safe_options, safe_correct_ids
 
         if len(safe_options) > option_count:
             mandatory_ids = sorted(set(safe_correct_ids))
@@ -1569,15 +1601,6 @@ Seed уникальности: {seed}
             if "нақты түбір жоқ" in sentence:
                 add(sentence.replace("нақты түбір жоқ", "екі нақты түбір бар"))
 
-        short_options = [item for item in source if len(item.split()) <= 3]
-        if short_options:
-            if language == PreferredLanguage.ru:
-                for candidate in ["Четыре", "Бесконечно много", "Не определено"]:
-                    add(candidate)
-            else:
-                for candidate in ["Төрт", "Шексіз көп", "Анықталмаған"]:
-                    add(candidate)
-
         numeric_values: list[tuple[float, str]] = []
         for item in source:
             match = re.fullmatch(r"\s*(-?\d+(?:\.\d+)?)\s*([%°]?)\s*", item)
@@ -1588,22 +1611,39 @@ Seed уникальности: {seed}
         if numeric_values:
             suffix = numeric_values[0][1]
             base_values = [value for value, _ in numeric_values]
-            average = sum(base_values) / len(base_values)
-            offsets = [-30, -20, -10, -5, 5, 10, 20, 30]
-            rng.shuffle(offsets)
-            for offset in offsets:
-                candidate = average + offset
-                rendered = f"{int(candidate) if candidate.is_integer() else round(candidate, 2)}{suffix}"
-                add(rendered)
-                if len(pool) >= needed:
-                    break
+            is_integer_series = all(float(value).is_integer() for value in base_values)
 
-        if len(pool) < needed and language == PreferredLanguage.ru:
-            add("Неверная подстановка коэффициентов")
-            add("Пропущен важный знак в формуле")
-        if len(pool) < needed and language == PreferredLanguage.kz:
-            add("Коэффициенттер қате қойылған")
-            add("Формулада маңызды белгі жіберілген")
+            if is_integer_series:
+                int_values = [int(value) for value in base_values]
+                span = max(int_values) - min(int_values)
+                if span <= 20:
+                    step = 1
+                elif span <= 80:
+                    step = 5
+                else:
+                    step = 10
+                deltas = [-4, -3, -2, -1, 1, 2, 3, 4, 5, -5]
+                rng.shuffle(deltas)
+                anchors = int_values[:]
+                rng.shuffle(anchors)
+                for anchor in anchors:
+                    for delta in deltas:
+                        candidate = anchor + delta * step
+                        add(f"{candidate}{suffix}")
+                        if len(pool) >= needed:
+                            break
+                    if len(pool) >= needed:
+                        break
+            else:
+                average = sum(base_values) / len(base_values)
+                offsets = [-30, -20, -10, -5, 5, 10, 20, 30]
+                rng.shuffle(offsets)
+                for offset in offsets:
+                    candidate = average + offset
+                    rendered = f"{int(candidate) if candidate.is_integer() else round(candidate, 2)}{suffix}"
+                    add(rendered)
+                    if len(pool) >= needed:
+                        break
 
         return pool[:needed]
 
@@ -2192,7 +2232,8 @@ Seed уникальности: {seed}
 
             normalized: GeneratedQuestionPayload
             if qtype in {QuestionType.single_choice, QuestionType.multi_choice}:
-                options, correct_option_ids = self._sanitize_choice_payload(
+                sanitized_choice_payload = self._sanitize_choice_payload(
+                    subject=subject,
                     topic=topic,
                     language=language,
                     option_count=self._choice_option_count(difficulty),
@@ -2200,6 +2241,9 @@ Seed уникальности: {seed}
                     source_correct_answer=question.correct_answer_json,
                     question_type=qtype,
                 )
+                if sanitized_choice_payload is None:
+                    continue
+                options, correct_option_ids = sanitized_choice_payload
                 normalized = GeneratedQuestionPayload(
                     type=qtype,
                     prompt=prompt,
@@ -2256,13 +2300,14 @@ Seed уникальности: {seed}
     def _sanitize_choice_payload(
         self,
         *,
+        subject: Subject,
         topic: str,
         language: PreferredLanguage,
         option_count: int,
         source_options: dict[str, Any] | None,
         source_correct_answer: dict[str, Any] | None,
         question_type: QuestionType,
-    ) -> tuple[list[dict[str, Any]], list[int]]:
+    ) -> tuple[list[dict[str, Any]], list[int]] | None:
         raw_items = []
         if source_options and isinstance(source_options, dict):
             raw_items = source_options.get("options", []) or []
@@ -2303,15 +2348,37 @@ Seed уникальности: {seed}
             if mapped not in remapped_correct_ids:
                 remapped_correct_ids.append(mapped)
 
-        fallback_texts = self._fallback_option_texts(topic=topic, language=language, count=option_count * 3)
-        for fallback in fallback_texts:
+        rng = random.Random(f"sanitize::{subject.name_ru}::{language.value}::{topic}::{option_count}")
+        subject_distractors = get_distractors(subject_name_ru=subject.name_ru, language=language)
+        contextual_distractors = self._contextual_distractors_from_options(
+            options=normalized_texts,
+            language=language,
+            needed=option_count * 3,
+            rng=rng,
+        )
+        topic_tokens = {
+            token
+            for token in re.findall(r"[a-zA-Zа-яА-ЯәіңғүұқөһӘІҢҒҮҰҚӨҺ0-9]+", topic.lower())
+            if len(token) >= 4
+        }
+        topic_matched_distractors = [
+            item
+            for item in subject_distractors
+            if any(token in item.lower() for token in topic_tokens)
+        ]
+
+        for fallback in [*contextual_distractors, *topic_matched_distractors]:
             if len(normalized_texts) >= option_count:
                 break
-            key = fallback.lower()
+            key = str(fallback).strip().lower()
             if key in text_to_index:
                 continue
             text_to_index[key] = len(normalized_texts)
-            normalized_texts.append(fallback)
+            normalized_texts.append(str(fallback).strip())
+
+        min_required_options = min(4, option_count)
+        if len(normalized_texts) < min_required_options:
+            return None
 
         if len(normalized_texts) > option_count:
             mandatory = sorted({idx for idx in remapped_correct_ids if 0 <= idx < len(normalized_texts)})
@@ -2353,15 +2420,6 @@ Seed уникальности: {seed}
             return
 
         if difficulty == DifficultyLevel.easy:
-            allowed_short = 0 if len(questions) <= 6 else 1
-            short_indices = [idx for idx, item in enumerate(questions) if item.type == QuestionType.short_text]
-            while len(short_indices) > allowed_short:
-                index = short_indices.pop()
-                questions[index] = self._convert_short_to_choice(
-                    question=questions[index],
-                    language=language,
-                    difficulty=difficulty,
-                )
             return
 
         required_short_questions = max(1, len(questions) // 5) if difficulty == DifficultyLevel.medium else max(2, len(questions) // 3)
@@ -2420,7 +2478,8 @@ Seed уникальности: {seed}
             if language == PreferredLanguage.kz and "Ауызша жауап" not in normalized_prompt:
                 normalized_prompt = f"{normalized_prompt} Ауызша жауап беріп, қысқаша дәлелдеңіз."
         else:
-            if language == PreferredLanguage.ru and "краткий" not in normalized_prompt.lower():
+            normalized_prompt_lower = normalized_prompt.lower()
+            if language == PreferredLanguage.ru and "кратк" not in normalized_prompt_lower and "коротк" not in normalized_prompt_lower:
                 normalized_prompt = f"{normalized_prompt} Дайте краткий текстовый ответ."
             if language == PreferredLanguage.kz and "қысқа" not in normalized_prompt.lower():
                 normalized_prompt = f"{normalized_prompt} Қысқа мәтіндік жауап беріңіз."

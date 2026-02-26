@@ -1,0 +1,292 @@
+.page {
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+  display: grid;
+  gap: 80px;
+  padding-bottom: 56px;
+}
+
+.section {
+  display: grid;
+  gap: 28px;
+}
+
+.header {
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  text-align: center;
+}
+
+.title {
+  margin: 0;
+  color: var(--ink-strong);
+  font-size: 24px;
+  line-height: 1.2;
+  font-weight: 600;
+}
+
+.subtitle {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 16px;
+  line-height: 1.35;
+  font-weight: 350;
+}
+
+.summaryGrid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(290px, 420px) 1fr;
+  align-items: stretch;
+}
+
+.scoreCard {
+  border-radius: 18px;
+  background: linear-gradient(112deg, #6a63f5 0%, #675feb 100%);
+  padding: 28px 30px;
+  color: #ffffff;
+  display: grid;
+  gap: 16px;
+  align-content: start;
+}
+
+.scoreLabel {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.35;
+  font-weight: 600;
+}
+
+.scoreValue {
+  margin: 0;
+  font-size: 64px;
+  line-height: 0.95;
+  font-weight: 600;
+}
+
+.scoreGood,
+.scoreMid,
+.scoreLow {
+  color: #ffffff;
+}
+
+.metrics {
+  display: grid;
+  gap: 10px;
+}
+
+.metricRow {
+  margin: 0;
+  color: #f4f2ff;
+  font-size: 16px;
+  line-height: 1.3;
+  font-weight: 350;
+}
+
+.metricRow b {
+  font-weight: 600;
+}
+
+.recommendationCard {
+  border-radius: 18px;
+  border: 1px solid var(--line-color);
+  background: #ffffff;
+  padding: 28px 30px;
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
+.recommendationTitle {
+  margin: 0;
+  color: var(--ink-strong);
+  font-size: 24px;
+  line-height: 1.2;
+  font-weight: 600;
+}
+
+.recommendationText,
+.weakTopics {
+  margin: 0;
+  color: var(--ink-strong);
+  font-size: 16px;
+  line-height: 1.35;
+  font-weight: 350;
+}
+
+.weakTopics {
+  color: var(--ink-muted);
+}
+
+.actionsRow {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.homeButton {
+  min-width: 194px;
+  min-height: 52px;
+  font-size: 16px;
+  line-height: 1.25;
+  font-weight: 600;
+}
+
+.retryButton {
+  border: none;
+  background: transparent;
+  color: var(--ink-strong);
+  font-size: 16px;
+  line-height: 1.25;
+  font-weight: 350;
+  cursor: pointer;
+  padding: 0;
+}
+
+.retryButton:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.sectionHeader {
+  display: grid;
+  gap: 8px;
+}
+
+.sectionTitle {
+  margin: 0;
+  color: var(--ink-strong);
+  font-size: 24px;
+  line-height: 1.2;
+  font-weight: 600;
+}
+
+.answerGrid {
+  display: grid;
+  gap: 24px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.answerCard {
+  border-radius: 16px;
+  border: 1px solid var(--line-color);
+  background: #ffffff;
+  padding: 18px;
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+
+.fieldLabel {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 14px;
+  line-height: 1.35;
+  font-weight: 350;
+}
+
+.questionText,
+.answerText,
+.statusText {
+  margin: 0;
+  color: var(--ink-strong);
+  font-size: 16px;
+  line-height: 1.32;
+  font-weight: 350;
+}
+
+.answerCorrect {
+  color: #18bc66;
+}
+
+.answerWrong {
+  color: #e13737;
+}
+
+.stateCard {
+  border-radius: 16px;
+  border: 1px solid var(--line-color);
+  background: #ffffff;
+  padding: 24px;
+  display: grid;
+  gap: 12px;
+  color: var(--ink-muted);
+  font-size: 16px;
+  line-height: 1.35;
+  font-weight: 350;
+}
+
+.stateTitle {
+  margin: 0;
+  color: var(--ink-strong);
+  font-size: 24px;
+  line-height: 1.2;
+  font-weight: 600;
+}
+
+.stateText {
+  margin: 0;
+}
+
+.footer {
+  margin-top: 8px;
+  text-align: center;
+  color: var(--ink-muted);
+  font-size: 16px;
+  line-height: 1.35;
+  font-weight: 350;
+}
+
+@media (max-width: 1180px) {
+  .answerGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .title,
+  .recommendationTitle,
+  .sectionTitle,
+  .stateTitle {
+    font-size: 20px;
+  }
+
+  .subtitle,
+  .recommendationText,
+  .weakTopics,
+  .metricRow,
+  .questionText,
+  .answerText,
+  .statusText,
+  .retryButton,
+  .homeButton,
+  .stateCard,
+  .footer {
+    font-size: 14px;
+  }
+
+  .fieldLabel {
+    font-size: 12px;
+  }
+
+  .summaryGrid,
+  .answerGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .scoreCard,
+  .recommendationCard {
+    padding: 22px 18px;
+  }
+
+  .actionsRow {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .homeButton {
+    min-width: 160px;
+  }
+}

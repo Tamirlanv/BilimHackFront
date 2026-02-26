@@ -1,4 +1,4 @@
-const ICONS_VERSION = "20260225-4";
+const ICONS_VERSION = "20260226-1";
 
 export const assetPaths = {
   logo: {
@@ -27,6 +27,7 @@ export const assetPaths = {
     informatics: `/assets/icons/solar_cpu-bold.svg?v=${ICONS_VERSION}`,
     ent: `/assets/icons/healthicons_i-exam-multiple-choice.svg?v=${ICONS_VERSION}`,
     ielts: `/assets/icons/ri_english-input.svg?v=${ICONS_VERSION}`,
+    blitz: `/assets/icons/ph_lightning-fill.svg?v=${ICONS_VERSION}`,
     soon: `/assets/icons/solar_server-square-update-outline.svg?v=${ICONS_VERSION}`,
   },
   images: {

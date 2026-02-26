@@ -46,10 +46,31 @@
   gap: 36px 28px;
 }
 
+.extraGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 22px;
+}
+
 .metricItem,
 .subjectItem {
   display: grid;
   gap: 4px;
+}
+
+.extraCard {
+  display: grid;
+  gap: 4px;
+}
+
+.iconRow {
+  margin-bottom: 4px;
+}
+
+.blitzIcon {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
 }
 
 .metricLabel {
@@ -118,7 +139,8 @@
 
 @media (max-width: 1100px) {
   .metricsGrid,
-  .subjectGrid {
+  .subjectGrid,
+  .extraGrid {
     gap: 30px 20px;
   }
 }
@@ -129,7 +151,8 @@
   }
 
   .metricsGrid,
-  .subjectGrid {
+  .subjectGrid,
+  .extraGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -164,13 +187,15 @@
   }
 
   .metricsGrid,
-  .subjectGrid {
+  .subjectGrid,
+  .extraGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 14px 12px;
   }
 
   .metricItem,
-  .subjectItem {
+  .subjectItem,
+  .extraCard {
     padding: 10px 8px;
     border-radius: 12px;
     background: #ffffff;

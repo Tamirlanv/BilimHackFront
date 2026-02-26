@@ -9,6 +9,8 @@ import Card from "@/components/ui/Card";
 import { getHistory, getProgress, getSubjects } from "@/lib/api";
 import { getToken } from "@/lib/auth";
 import { HistoryItem, StudentProgress, Subject } from "@/lib/types";
+import { readBlitzResultHistory } from "@/lib/blitz";
+import { assetPaths } from "@/src/assets";
 import styles from "@/app/progress/progress.module.css";
 
 interface MetricItem {
@@ -21,6 +23,13 @@ interface MetricItem {
 interface SubjectMetricItem {
   id: string;
   name: string;
+  value: string;
+}
+
+interface ExtraMetricItem {
+  id: string;
+  label: string;
+  meta: string;
   value: string;
 }
 
@@ -40,6 +49,7 @@ export default function ProgressPage() {
   const [progress, setProgress] = useState<StudentProgress | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [blitzHistory, setBlitzHistory] = useState<Array<{ percent: number }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -48,6 +58,7 @@ export default function ProgressPage() {
     if (!token) return;
 
     let isCancelled = false;
+    setBlitzHistory(readBlitzResultHistory().map((item) => ({ percent: item.percent })));
 
     (async () => {
       try {
@@ -230,6 +241,51 @@ export default function ProgressPage() {
     });
   }, [progress?.subject_stats, subjects]);
 
+  const examMetrics = useMemo<ExtraMetricItem[]>(() => {
+    const createExamMetric = (examKind: "ent" | "ielts", title: string): ExtraMetricItem => {
+      const examHistory = history.filter((item) => item.exam_kind === examKind);
+      if (examHistory.length === 0) {
+        return {
+          id: examKind,
+          label: title,
+          meta: "Пока нет попыток",
+          value: "–",
+        };
+      }
+
+      const best = Math.max(...examHistory.map((item) => item.percent));
+      const avg = examHistory.reduce((acc, item) => acc + item.percent, 0) / examHistory.length;
+
+      return {
+        id: examKind,
+        label: title,
+        meta: `Попыток: ${examHistory.length} · Средний: ${formatPercent(avg)}`,
+        value: formatPercent(best),
+      };
+    };
+
+    return [createExamMetric("ent", "ЕНТ"), createExamMetric("ielts", "IELTS")];
+  }, [history]);
+
+  const blitzMetrics = useMemo<ExtraMetricItem[]>(() => {
+    if (blitzHistory.length === 0) {
+      return [
+        { id: "blitz-best", label: "Лучший результат", meta: "Быстрые вопросы Да/Нет", value: "–" },
+        { id: "blitz-avg", label: "Средний результат", meta: "По всем блиц-сессиям", value: "–" },
+        { id: "blitz-attempts", label: "Всего блицев", meta: "Завершенных сессий", value: "0" },
+      ];
+    }
+
+    const best = Math.max(...blitzHistory.map((item) => item.percent));
+    const avg = blitzHistory.reduce((acc, item) => acc + item.percent, 0) / blitzHistory.length;
+
+    return [
+      { id: "blitz-best", label: "Лучший результат", meta: "Быстрые вопросы Да/Нет", value: formatPercent(best) },
+      { id: "blitz-avg", label: "Средний результат", meta: "По всем блиц-сессиям", value: formatPercent(avg) },
+      { id: "blitz-attempts", label: "Всего блицев", meta: "Завершенных сессий", value: String(blitzHistory.length) },
+    ];
+  }, [blitzHistory]);
+
   const exportRows = useMemo(() => {
     const rows: Array<{ label: string; value: string }> = [];
     for (const item of metrics) {
@@ -238,8 +294,14 @@ export default function ProgressPage() {
     for (const subject of subjectMetrics) {
       rows.push({ label: `Предмет: ${subject.name}`, value: subject.value });
     }
+    for (const exam of examMetrics) {
+      rows.push({ label: `Подготовка: ${exam.label}`, value: exam.value });
+    }
+    for (const blitz of blitzMetrics) {
+      rows.push({ label: `Блиц: ${blitz.label}`, value: blitz.value });
+    }
     return rows;
-  }, [metrics, subjectMetrics]);
+  }, [blitzMetrics, examMetrics, metrics, subjectMetrics]);
 
   const exportCsv = () => {
     const rows = ["Показатель,Значение", ...exportRows.map((item) => `${toCsvCell(item.label)},${toCsvCell(item.value)}`)];
@@ -300,6 +362,45 @@ export default function ProgressPage() {
                 <article className={styles.subjectItem} key={item.id}>
                   <h3 className={styles.metricLabel}>{item.name}</h3>
                   <p className={styles.metricMeta}>По всем попыткам</p>
+                  <p className={styles.metricValue}>{item.value}</p>
+                </article>
+              ))}
+            </div>
+          </section>
+
+          <section className={styles.section}>
+            <div className={styles.sectionHeaderCentered}>
+              <h2 className={styles.sectionTitle}>Подготовка к важному</h2>
+              <p className={styles.sectionSubtitle}>Статистика по экзаменационным режимам ЕНТ и IELTS</p>
+            </div>
+
+            <div className={styles.extraGrid}>
+              {examMetrics.map((item) => (
+                <article className={styles.extraCard} key={item.id}>
+                  <h3 className={styles.metricLabel}>{item.label}</h3>
+                  <p className={styles.metricMeta}>{item.meta}</p>
+                  <p className={styles.metricValue}>{item.value}</p>
+                </article>
+              ))}
+            </div>
+          </section>
+
+          <section className={styles.section}>
+            <div className={styles.sectionHeaderCentered}>
+              <h2 className={styles.sectionTitle}>Блиц</h2>
+              <p className={styles.sectionSubtitle}>Краткая статистика по быстрым сессиям</p>
+            </div>
+
+            <div className={styles.extraGrid}>
+              {blitzMetrics.map((item, index) => (
+                <article className={styles.extraCard} key={item.id}>
+                  {index === 0 ? (
+                    <div className={styles.iconRow}>
+                      <img className={styles.blitzIcon} src={assetPaths.icons.blitz} alt="Блиц" />
+                    </div>
+                  ) : null}
+                  <h3 className={styles.metricLabel}>{item.label}</h3>
+                  <p className={styles.metricMeta}>{item.meta}</p>
                   <p className={styles.metricValue}>{item.value}</p>
                 </article>
               ))}

@@ -1512,37 +1512,79 @@ def _difficulty_prompt_forms(language: PreferredLanguage, difficulty: Difficulty
         if difficulty == DifficultyLevel.easy:
             return [
                 "{question}",
-                "Выберите верный ответ. {question}",
-                "Тема «{topic}». {question}",
+                "Выберите правильный ответ: {question}",
+                "Укажите верный вариант: {question}",
+                "Какой ответ правильный? {question}",
+                "Выберите корректный вариант ответа: {question}",
+                "Определите верный ответ: {question}",
+                "Какой вариант будет правильным? {question}",
+                "Найдите правильный ответ: {question}",
+                "Выберите точный вариант: {question}",
+                "Укажите правильный ответ к вопросу: {question}",
             ]
         if difficulty == DifficultyLevel.medium:
             return [
-                "Определите правильный вариант. {question}",
-                "Примените правило по теме «{topic}». {question}",
-                "Укажите корректный ответ для учебной ситуации. {question}",
+                "{question}",
+                "Выберите правильный ответ: {question}",
+                "Определите корректный вариант: {question}",
+                "Какой ответ является верным? {question}",
+                "Выберите наиболее подходящий вариант: {question}",
+                "Укажите точный ответ: {question}",
+                "Какой вариант соответствует условию? {question}",
+                "Найдите верный ответ: {question}",
+                "Выберите корректный ответ по условию: {question}",
+                "Определите правильный вариант ответа: {question}",
             ]
         return [
-            "Проанализируйте вопрос и выберите точный ответ. {question}",
-            "Тема «{topic}»: {question}",
-            "С учетом теории выберите правильный ответ. {question}",
+            "{question}",
+            "Выберите наиболее точный ответ: {question}",
+            "Определите корректный вариант: {question}",
+            "Какой ответ наиболее обоснован? {question}",
+            "Выберите правильный вариант с учетом условия: {question}",
+            "Найдите наиболее верный ответ: {question}",
+            "Какой вариант соответствует вопросу? {question}",
+            "Укажите наиболее точный ответ: {question}",
+            "Определите правильный ответ по условию: {question}",
+            "Выберите корректный ответ для вопроса: {question}",
         ]
 
     if difficulty == DifficultyLevel.easy:
         return [
             "{question}",
-            "Дұрыс жауапты таңдаңыз. {question}",
-            "«{topic}» тақырыбы. {question}",
+            "Дұрыс жауапты таңдаңыз: {question}",
+            "Дұрыс нұсқаны көрсетіңіз: {question}",
+            "Қай жауап дұрыс? {question}",
+            "Дұрыс жауап нұсқасын таңдаңыз: {question}",
+            "Дұрыс жауапты анықтаңыз: {question}",
+            "Қай нұсқа дұрыс болады? {question}",
+            "Дұрыс жауапты табыңыз: {question}",
+            "Нақты нұсқаны таңдаңыз: {question}",
+            "Сұраққа дұрыс жауапты көрсетіңіз: {question}",
         ]
     if difficulty == DifficultyLevel.medium:
         return [
-            "Дұрыс нұсқаны анықтаңыз. {question}",
-            "«{topic}» тақырыбы бойынша ережені қолданыңыз. {question}",
-            "Оқу жағдайына сай дұрыс жауапты көрсетіңіз. {question}",
+            "{question}",
+            "Дұрыс жауапты таңдаңыз: {question}",
+            "Дұрыс нұсқаны анықтаңыз: {question}",
+            "Қай жауап дұрыс екенін көрсетіңіз: {question}",
+            "Ең сәйкес нұсқаны таңдаңыз: {question}",
+            "Нақты дұрыс жауапты көрсетіңіз: {question}",
+            "Қай нұсқа шартқа сай келеді? {question}",
+            "Дұрыс жауапты табыңыз: {question}",
+            "Шартқа сай дұрыс жауапты таңдаңыз: {question}",
+            "Дұрыс жауап нұсқасын анықтаңыз: {question}",
         ]
     return [
-        "Сұрақты талдап, ең дәл жауапты таңдаңыз. {question}",
-        "«{topic}» тақырыбы: {question}",
-        "Теорияны ескере отырып, дұрыс жауапты таңдаңыз. {question}",
+        "{question}",
+        "Ең дәл жауапты таңдаңыз: {question}",
+        "Дұрыс нұсқаны анықтаңыз: {question}",
+        "Қай жауап ең негізді? {question}",
+        "Шартты ескеріп, дұрыс жауапты таңдаңыз: {question}",
+        "Ең дұрыс жауапты табыңыз: {question}",
+        "Қай нұсқа сұраққа сәйкес келеді? {question}",
+        "Ең нақты дұрыс жауапты көрсетіңіз: {question}",
+        "Шарт бойынша дұрыс жауапты анықтаңыз: {question}",
+        "Сұраққа сәйкес дұрыс жауапты таңдаңыз: {question}",
     ]
 
 
@@ -1708,5 +1750,25 @@ def get_text_question_templates(
 def get_distractors(*, subject_name_ru: str, language: PreferredLanguage) -> list[str]:
     key = _resolve_subject_key(subject_name_ru)
     lang_key = "ru" if language == PreferredLanguage.ru else "kz"
-    subject_pool = DISTRACTOR_BANK.get(key, DISTRACTOR_BANK["_default"])
-    return list(subject_pool.get(lang_key, DISTRACTOR_BANK["_default"][lang_key]))
+
+    output: list[str] = []
+    seen: set[str] = set()
+
+    def add_many(values: Any) -> None:
+        if not isinstance(values, list):
+            return
+        for item in values:
+            value = str(item).strip()
+            key_value = value.lower()
+            if not value or key_value in seen:
+                continue
+            seen.add(key_value)
+            output.append(value)
+
+    for item in QUESTION_BANK.get(key, []):
+        add_many(item.get(f"options_{lang_key}"))
+    for item in SUBJECT_FACT_BANK.get(key, []):
+        add_many(item.get(f"options_{lang_key}"))
+
+    # If a subject key was not found, return an empty pool to avoid generic placeholders.
+    return output

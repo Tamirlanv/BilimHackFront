@@ -3,6 +3,7 @@
 import { usePathname, useRouter } from "next/navigation";
 import {
   Bell,
+  Bolt,
   BookOpenCheck,
   ChartSpline,
   Clock3,
@@ -40,6 +41,7 @@ interface NavItem {
 function getPageTitle(pathname: string, role?: string) {
   if (pathname.startsWith("/dashboard")) return "Главная";
   if (pathname.startsWith("/test")) return "Тесты";
+  if (pathname.startsWith("/blitz")) return "Блиц";
   if (pathname.startsWith("/results")) return "Результаты";
   if (pathname.startsWith("/history")) return "История";
   if (pathname.startsWith("/progress")) return "Аналитика";
@@ -107,6 +109,11 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         href: "/test",
         label: "Тест",
         icon: <BookOpenCheck size={18} />,
+      },
+      {
+        href: "/blitz",
+        label: "Блиц",
+        icon: <Bolt size={18} />,
       },
       {
         href: "/history",
@@ -178,10 +185,9 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     return (
       <aside className={`${styles.sidebar} ${isCollapsedView ? styles.sidebarCollapsed : ""} ${isMobileVariant ? styles.sidebarMobile : ""}`}>
         <div className={styles.brand}>
-          <img alt="Логотип OKU" className={styles.logo} src={assetPaths.logo.png} />
+          <img alt="Логотип OKU" className={styles.logo} src={assetPaths.logo.svg} />
           <div className={styles.brandText}>
             <strong>OKU</strong>
-            <small>Образовательная платформа</small>
           </div>
         </div>
 

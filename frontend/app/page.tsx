@@ -49,7 +49,7 @@ export default function LandingPage() {
           <p className={styles.heroSubtitle}>Единая платформа превращающая тестирование в инструмент обучения</p>
           <div className={styles.heroActions}>
             <Link className={styles.ctaPrimary} href="/register">
-              Зарегистрироваться
+              Регистрация
             </Link>
             <Link className={styles.ctaPrimary} href="/login">
               Войти

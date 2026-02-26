@@ -1,0 +1,424 @@
+.page {
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+  display: grid;
+  gap: 34px;
+  padding-bottom: 56px;
+}
+
+.header {
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  text-align: center;
+}
+
+.title {
+  margin: 0;
+  color: var(--ink-strong);
+  font-size: 24px;
+  line-height: 1.2;
+  font-weight: 600;
+}
+
+.subtitle {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 16px;
+  line-height: 1.35;
+  font-weight: 350;
+}
+
+.progressSection {
+  display: grid;
+  gap: 16px;
+  justify-items: center;
+}
+
+.timerRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.timerIcon {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+}
+
+.timerValue {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 36px;
+  line-height: 1.3;
+  font-weight: 600;
+}
+
+.progressBar {
+  width: min(100%, 520px);
+  height: 10px;
+  border-radius: 999px;
+  background: #d2d2d2;
+  overflow: hidden;
+}
+
+.progressBar span {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: linear-gradient(120deg, #6a63f5, #6a63f5);
+  transition: width 0.2s ease;
+}
+
+.counterText {
+  margin: 0;
+  color: var(--ink-strong);
+  font-size: 36px;
+  line-height: 1.2;
+  font-weight: 600;
+}
+
+.blitzArea {
+  display: grid;
+  grid-template-columns: 148px minmax(0, 1fr) 148px;
+  gap: 34px;
+  align-items: center;
+}
+
+.sideButton {
+  min-height: 48px;
+  font-size: 16px;
+  font-weight: 600;
+  border-radius: 10px;
+  min-width: 120px;
+}
+
+.sideButtonNo {
+  border: none;
+}
+
+.stack {
+  position: relative;
+  width: min(100%, 500px);
+  margin: 0 auto;
+  min-height: 238px;
+}
+
+.stackShadow {
+  position: absolute;
+  left: 50%;
+  width: 100%;
+  height: 178px;
+  transform: translateX(-50%);
+  border-radius: 18px;
+  background: #fdfdfd;
+  border: 1px solid #ececf0;
+}
+
+.stackShadowBack {
+  z-index: 1;
+  top: 32px;
+  transform: translateX(-50%) rotate(-6deg);
+}
+
+.stackShadowMid {
+  z-index: 2;
+  top: 24px;
+  transform: translateX(-50%) rotate(5deg);
+}
+
+.questionCard {
+  position: relative;
+  z-index: 3;
+  min-height: 178px;
+  border-radius: 18px;
+  border: 1px solid #ebecf0;
+  background: #ffffff;
+  padding: 24px;
+  display: grid;
+  gap: 8px;
+  align-content: center;
+  justify-items: center;
+  text-align: center;
+  user-select: none;
+  touch-action: pan-y;
+  cursor: grab;
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.1);
+  transition: transform 0.24s ease, opacity 0.24s ease, box-shadow 0.24s ease;
+}
+
+.questionCardDragging {
+  cursor: grabbing;
+  transition: none;
+}
+
+.questionCardExitLeft {
+  transform: translateX(-150%) rotate(-14deg);
+  opacity: 0;
+}
+
+.questionCardExitRight {
+  transform: translateX(150%) rotate(14deg);
+  opacity: 0;
+}
+
+.questionCardExitFade {
+  transform: translateY(-24px);
+  opacity: 0;
+}
+
+.topic {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 24px;
+  line-height: 1.3;
+  font-weight: 350;
+}
+
+.prompt {
+  margin: 0;
+  color: var(--ink-strong);
+  font-size: 44px;
+  line-height: 1.18;
+  font-weight: 600;
+}
+
+.cardHint {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 12px;
+  line-height: 1.35;
+  font-weight: 350;
+}
+
+.decisionBadge {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 12px;
+  line-height: 1;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+
+.decisionYes {
+  color: #16a34a;
+  border-color: #bde8cc;
+  background: #f2fcf6;
+}
+
+.decisionNo {
+  color: #d83737;
+  border-color: #f1c0c0;
+  background: #fff3f3;
+}
+
+.stateCard {
+  border-radius: 16px;
+  border: 1px solid var(--line-color);
+  background: #ffffff;
+  padding: 22px;
+  display: grid;
+  gap: 10px;
+}
+
+.stateTitle {
+  margin: 0;
+  color: var(--ink-strong);
+  font-size: 24px;
+  line-height: 1.2;
+  font-weight: 600;
+}
+
+.stateText {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 16px;
+  line-height: 1.35;
+  font-weight: 350;
+}
+
+.startWrap {
+  display: grid;
+  place-items: center;
+  min-height: 62vh;
+}
+
+.startCard {
+  width: min(100%, 520px);
+  border-radius: 20px;
+  border: 1px solid var(--line-color);
+  background: #ffffff;
+  padding: 30px 26px;
+  display: grid;
+  gap: 14px;
+  justify-items: center;
+  text-align: center;
+}
+
+.startTitle {
+  margin: 0;
+  color: var(--ink-strong);
+  font-size: 32px;
+  line-height: 1.15;
+  font-weight: 600;
+}
+
+.startText {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 16px;
+  line-height: 1.35;
+  font-weight: 350;
+}
+
+.startMeta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.startMeta span {
+  border-radius: 999px;
+  border: 1px solid var(--line-color);
+  background: #fafaff;
+  color: var(--ink-muted);
+  font-size: 14px;
+  line-height: 1.2;
+  font-weight: 350;
+  padding: 6px 10px;
+}
+
+.startActions {
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.startPrimary {
+  min-width: 168px;
+  min-height: 44px;
+}
+
+.startCancel {
+  border: none;
+  background: transparent;
+  color: var(--ink-strong);
+  font-size: 16px;
+  line-height: 1.2;
+  font-weight: 350;
+  cursor: pointer;
+}
+
+.startCancel:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+@media (max-width: 900px) {
+  .page {
+    gap: 24px;
+  }
+
+  .title {
+    font-size: 20px;
+  }
+
+  .subtitle {
+    font-size: 14px;
+  }
+
+  .timerValue,
+  .counterText {
+    font-size: 24px;
+  }
+
+  .prompt {
+    font-size: 30px;
+  }
+
+  .topic,
+  .startText,
+  .cardHint,
+  .stateText,
+  .startCancel {
+    font-size: 12px;
+  }
+
+  .startTitle {
+    font-size: 20px;
+  }
+
+  .startMeta span {
+    font-size: 12px;
+  }
+
+  .blitzArea {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  .sideButton {
+    display: none;
+  }
+
+  .stack {
+    width: 100%;
+    min-height: 216px;
+  }
+
+  .questionCard {
+    min-height: 166px;
+    padding: 18px 16px;
+    gap: 12px;
+    border-radius: 18px;
+  }
+
+  .stackShadow {
+    height: 166px;
+  }
+
+  .stackShadowBack {
+    top: 20px;
+  }
+
+  .stackShadowMid {
+    top: 14px;
+  }
+
+  .progressBar {
+    width: 100%;
+  }
+
+  .timerIcon {
+    width: 24px;
+    height: 24px;
+  }
+
+  .stateTitle {
+    font-size: 20px;
+  }
+
+  .startCard {
+    padding: 24px 16px;
+    border-radius: 16px;
+  }
+
+  .startActions {
+    width: 100%;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .startPrimary,
+  .startCancel {
+    width: 100%;
+  }
+}
