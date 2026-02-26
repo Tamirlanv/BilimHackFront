@@ -1,3 +1,5 @@
+import { Language } from "@/lib/types";
+
 export const BLITZ_QUESTION_TIME_LIMIT_SECONDS = 15;
 export const BLITZ_SESSION_SIZE = 30;
 export const BLITZ_LAST_RESULT_KEY = "oku_blitz_last_result";
@@ -22,6 +24,7 @@ export interface BlitzAnswerRecord {
 }
 
 export interface BlitzResultPayload {
+  language: Language;
   totalQuestions: number;
   correctAnswers: number;
   wrongAnswers: number;
@@ -83,15 +86,16 @@ export const BLITZ_QUESTION_POOL: BlitzQuestion[] = [
   { id: "bq-36", topic: "Информатика", prompt: "Microsoft Excel — это табличный редактор?", answer: true },
 ];
 
-export function createBlitzQuestionSet(count: number = BLITZ_SESSION_SIZE): BlitzQuestion[] {
+export function createBlitzQuestionSet(count: number = BLITZ_SESSION_SIZE, language: Language = "RU"): BlitzQuestion[] {
   const shuffled = shuffle(BLITZ_QUESTION_POOL);
   const safeCount = Math.max(1, Math.min(count, shuffled.length));
-  return shuffled.slice(0, safeCount);
+  return shuffled.slice(0, safeCount).map((item) => localizeBlitzQuestion(item, language));
 }
 
 export function buildBlitzResultPayload(
   answers: BlitzAnswerRecord[],
   totalElapsedSeconds: number,
+  language: Language = "RU",
 ): BlitzResultPayload {
   const totalQuestions = answers.length;
   const correctAnswers = answers.filter((item) => item.isCorrect).length;
@@ -99,10 +103,11 @@ export function buildBlitzResultPayload(
   const wrongAnswers = Math.max(0, totalQuestions - correctAnswers);
   const percent = totalQuestions > 0 ? roundToOne((correctAnswers / totalQuestions) * 100) : 0;
 
-  const weakTopics = collectWeakTopics(answers);
-  const recommendation = buildBlitzRecommendation(percent, timedOutAnswers, weakTopics);
+  const weakTopics = collectWeakTopics(answers, language);
+  const recommendation = buildBlitzRecommendation(percent, timedOutAnswers, weakTopics, language);
 
   return {
+    language,
     totalQuestions,
     correctAnswers,
     wrongAnswers,
@@ -165,6 +170,7 @@ function normalizeBlitzResultPayload(input: unknown): BlitzResultPayload | null 
   if (typeof parsed.recommendation !== "string") return null;
 
   return {
+    language: parsed.language === "KZ" ? "KZ" : "RU",
     totalQuestions: parsed.totalQuestions,
     correctAnswers: parsed.correctAnswers,
     wrongAnswers: Number(parsed.wrongAnswers || 0),
@@ -191,12 +197,12 @@ function normalizeBlitzResultPayload(input: unknown): BlitzResultPayload | null 
   };
 }
 
-function collectWeakTopics(answers: BlitzAnswerRecord[]): string[] {
+function collectWeakTopics(answers: BlitzAnswerRecord[], language: Language): string[] {
   const misses = new Map<string, number>();
 
   for (const item of answers) {
     if (item.isCorrect) continue;
-    const topic = item.topic.trim() || "Общие темы";
+    const topic = item.topic.trim() || (language === "KZ" ? "Жалпы тақырыптар" : "Общие темы");
     misses.set(topic, (misses.get(topic) || 0) + 1);
   }
 
@@ -206,30 +212,46 @@ function collectWeakTopics(answers: BlitzAnswerRecord[]): string[] {
     .map(([topic]) => topic);
 }
 
-function buildBlitzRecommendation(percent: number, timedOut: number, weakTopics: string[]): string {
-  const weakTopicsText = weakTopics.length > 0 ? ` Обратите внимание на темы: ${weakTopics.join(", ")}.` : "";
+function buildBlitzRecommendation(percent: number, timedOut: number, weakTopics: string[], language: Language): string {
+  const weakTopicsText = weakTopics.length > 0
+    ? (language === "KZ"
+      ? ` Назар аударыңыз: ${weakTopics.join(", ")}.`
+      : ` Обратите внимание на темы: ${weakTopics.join(", ")}.`)
+    : "";
 
   if (percent === 100 && timedOut === 0) {
-    return "Отлично: вы прошли блиц без ошибок и без пропусков по времени. Попробуйте увеличить темп и закрепить результат в обычных тестах.";
+    return language === "KZ"
+      ? "Тамаша: блицті қатесіз және уақыт өткізіп алмай өттіңіз. Қарқынды арттырып, нәтижені негізгі тесттерде бекітіңіз."
+      : "Отлично: вы прошли блиц без ошибок и без пропусков по времени. Попробуйте увеличить темп и закрепить результат в обычных тестах.";
   }
 
   if (percent >= 90 && timedOut > 0) {
-    return "Результат высокий, но есть ответы с истекшим временем. Для более устойчивого прогресса старайтесь давать ответы без задержек и без пауз.";
+    return language === "KZ"
+      ? "Нәтиже жоғары, бірақ уақыт өтіп кеткен жауаптар бар. Тұрақты прогресс үшін жауапты кідіріссіз беруге тырысыңыз."
+      : "Результат высокий, но есть ответы с истекшим временем. Для более устойчивого прогресса старайтесь давать ответы без задержек и без пауз.";
   }
 
   if (percent >= 85) {
-    return `Хороший результат. Повторите 1–2 короткие сессии блица, чтобы довести точность до 100%.${weakTopicsText}`;
+    return language === "KZ"
+      ? `Жақсы нәтиже. Дәлдікті 100%-ға жеткізу үшін блицті 1–2 қысқа сессиямен қайталаңыз.${weakTopicsText}`
+      : `Хороший результат. Повторите 1–2 короткие сессии блица, чтобы довести точность до 100%.${weakTopicsText}`;
   }
 
   if (percent >= 65) {
-    return `Базовый уровень уверенный, но пока есть ошибки. Сделайте повторный блиц и отдельно проработайте слабые темы.${weakTopicsText}`;
+    return language === "KZ"
+      ? `Негізгі деңгей жаман емес, бірақ қателер бар. Блицті қайта өтіп, әлсіз тақырыптарды бөлек пысықтаңыз.${weakTopicsText}`
+      : `Базовый уровень уверенный, но пока есть ошибки. Сделайте повторный блиц и отдельно проработайте слабые темы.${weakTopicsText}`;
   }
 
   if (timedOut >= 5) {
-    return `Сейчас главный резерв — скорость ответа. Попробуйте тренироваться короткими подходами по 5–10 минут и контролировать таймер.${weakTopicsText}`;
+    return language === "KZ"
+      ? `Қазір негізгі резерв — жауап жылдамдығы. 5–10 минуттық қысқа жаттығулар жасап, таймерді қадағалаңыз.${weakTopicsText}`
+      : `Сейчас главный резерв — скорость ответа. Попробуйте тренироваться короткими подходами по 5–10 минут и контролировать таймер.${weakTopicsText}`;
   }
 
-  return `Рекомендуется повторить ключевые темы и пройти блиц заново, чтобы повысить точность ответов.${weakTopicsText}`;
+  return language === "KZ"
+    ? `Жауап дәлдігін арттыру үшін негізгі тақырыптарды қайталап, блицті қайта өту ұсынылады.${weakTopicsText}`
+    : `Рекомендуется повторить ключевые темы и пройти блиц заново, чтобы повысить точность ответов.${weakTopicsText}`;
 }
 
 function roundToOne(value: number): number {
@@ -243,4 +265,57 @@ function shuffle<T>(items: T[]): T[] {
     [output[index], output[randomIndex]] = [output[randomIndex], output[index]];
   }
   return output;
+}
+
+const BLITZ_KZ_TEXT: Record<string, { topic: string; prompt: string }> = {
+  "bq-01": { topic: "Математика", prompt: "2 + 2 = 4?" },
+  "bq-02": { topic: "Математика", prompt: "x² = 9 теңдеуінің тек бір түбірі бар ма?" },
+  "bq-03": { topic: "Математика", prompt: "Квадрат теңдеудің дискриминант формуласы: D = b² - 4ac?" },
+  "bq-04": { topic: "Математика", prompt: "sin(90°) мәні 1-ге тең бе?" },
+  "bq-05": { topic: "Математика", prompt: "Жай санның екіден көп бөлгіші бар ма?" },
+  "bq-06": { topic: "Биология", prompt: "Жасушада АТФ-тің негізгі синтезі митохондрияда жүреді ме?" },
+  "bq-07": { topic: "Биология", prompt: "Фотосинтез хлоропластарда жүреді ме?" },
+  "bq-08": { topic: "Биология", prompt: "Ересек адамда үш өкпе бар ма?" },
+  "bq-09": { topic: "Химия", prompt: "Судың химиялық формуласы — H₂O ма?" },
+  "bq-10": { topic: "Физика", prompt: "Дыбыс вакуумда тарала ма?" },
+  "bq-11": { topic: "Астрономия", prompt: "Жер Күнді айнала ма?" },
+  "bq-12": { topic: "Астрономия", prompt: "Ай планета болып санала ма?" },
+  "bq-13": { topic: "География", prompt: "Тынық мұхиты Жердегі ең үлкен мұхит па?" },
+  "bq-14": { topic: "География", prompt: "Қазақстанның дүниежүзілік мұхитқа тікелей шығатын жолы бар ма?" },
+  "bq-15": { topic: "География", prompt: "Қазақстанның астанасы — Астана ма?" },
+  "bq-16": { topic: "География", prompt: "Бойлық солтүстік-оңтүстік бағытын анықтай ма?" },
+  "bq-17": { topic: "Тарих", prompt: "Екінші дүниежүзілік соғыс 1945 жылы аяқталды ма?" },
+  "bq-18": { topic: "Тарих", prompt: "Қытай қорғанын Айдан жай көзбен көруге бола ма?" },
+  "bq-19": { topic: "Тарих", prompt: "Юрий Гагарин ғарышқа ұшқан алғашқы адам ба?" },
+  "bq-20": { topic: "Тарих", prompt: "Наполеон Ватерлоо шайқасында жеңіске жетті ме?" },
+  "bq-21": { topic: "Орыс тілі", prompt: "А. С. Пушкин «Евгений Онегин» романын жазды ма?" },
+  "bq-22": { topic: "Орыс тілі", prompt: "Орыс тілінде «жюри» сөзі әдетте септелмейді ме?" },
+  "bq-23": { topic: "Ағылшын тілі", prompt: "go етістігінің өткен шағы — went пе?" },
+  "bq-24": { topic: "Ағылшын тілі", prompt: "an артиклі дауыссыз дыбыстың алдында қолданыла ма?" },
+  "bq-25": { topic: "Информатика", prompt: "HTML — жалпы мақсаттағы бағдарламалау тілі ме?" },
+  "bq-26": { topic: "Информатика", prompt: "Екілік санау жүйесінде 0 және 1 цифрлары қолданыла ма?" },
+  "bq-27": { topic: "Информатика", prompt: "Оперативті жад (RAM) қуат өшсе де деректі сақтай ма?" },
+  "bq-28": { topic: "Информатика", prompt: "Процессор (CPU) бағдарламалардың нұсқауларын орындай ма?" },
+  "bq-29": { topic: "Емтихандар", prompt: "Қазақстанда ҰБТ жоғары оқу орнына түсу форматы ретінде қолданыла ма?" },
+  "bq-30": { topic: "Емтихандар", prompt: "IELTS төрт бөлімнен тұра ма: Listening, Reading, Writing және Speaking?" },
+  "bq-31": { topic: "Жалпы білім", prompt: "Кібісе жылы 366 күн бола ма?" },
+  "bq-32": { topic: "Жалпы білім", prompt: "Бір сағатта 3600 секунд бар ма?" },
+  "bq-33": { topic: "Химия", prompt: "pH мәні 7-ден төмен ерітінді қышқыл бола ма?" },
+  "bq-34": { topic: "Химия", prompt: "Алтынның химиялық таңбасы — Au ма?" },
+  "bq-35": { topic: "Физика", prompt: "Жарық жылы — қашықтық бірлігі ме?" },
+  "bq-36": { topic: "Информатика", prompt: "Microsoft Excel — кестелік редактор ма?" },
+};
+
+function localizeBlitzQuestion(item: BlitzQuestion, language: Language): BlitzQuestion {
+  if (language !== "KZ") {
+    return item;
+  }
+
+  const localized = BLITZ_KZ_TEXT[item.id];
+  if (!localized) return item;
+  return {
+    ...item,
+    topic: localized.topic,
+    prompt: localized.prompt,
+  };
 }

@@ -7,10 +7,13 @@ import { FormEvent, useState } from "react";
 import Button from "@/components/ui/Button";
 import { login } from "@/lib/api";
 import { saveSession } from "@/lib/auth";
+import { tr, useUiLanguage } from "@/lib/i18n";
 import { assetPaths } from "@/src/assets";
 
 export default function LoginPage() {
   const router = useRouter();
+  const uiLanguage = useUiLanguage();
+  const t = (ru: string, kz: string) => tr(uiLanguage, ru, kz);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -26,7 +29,7 @@ export default function LoginPage() {
       saveSession(response);
       router.push(response.user.role === "teacher" ? "/teacher" : "/dashboard");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось выполнить вход");
+      setError(err instanceof Error ? err.message : t("Не удалось выполнить вход", "Кіру орындалмады"));
     } finally {
       setLoading(false);
     }
@@ -38,31 +41,31 @@ export default function LoginPage() {
         <div className="authHeader">
           <img className="authLogo" src={assetPaths.logo.png} alt="OKU" />
           <div>
-            <h2 className="authTitle">Вход в OKU</h2>
-            <p className="authText">Используйте аккаунт студента или преподавателя.</p>
+            <h2 className="authTitle">{t("Вход в OKU", "OKU-ға кіру")}</h2>
+            <p className="authText">{t("Используйте аккаунт студента или преподавателя.", "Оқушы немесе оқытушы аккаунтын қолданыңыз.")}</p>
           </div>
         </div>
 
         <form className="formGrid" onSubmit={handleSubmit}>
           <label>
-            Почта
+            {t("Почта", "Электрондық пошта")}
             <input onChange={(e) => setEmail(e.target.value)} type="email" value={email} />
           </label>
 
           <label>
-            Пароль
+            {t("Пароль", "Құпиясөз")}
             <input onChange={(e) => setPassword(e.target.value)} type="password" value={password} />
           </label>
 
           {error && <div className="errorText">{error}</div>}
 
           <Button block disabled={loading} type="submit">
-            {loading ? "Выполняем вход..." : "Войти"}
+            {loading ? t("Выполняем вход...", "Кіру орындалып жатыр...") : t("Войти", "Кіру")}
           </Button>
         </form>
 
         <p className="authText" style={{ marginTop: 14 }}>
-          Нет аккаунта? <Link href="/register">Регистрация</Link>
+          {t("Нет аккаунта?", "Аккаунт жоқ па?")} <Link href="/register">{t("Регистрация", "Тіркелу")}</Link>
         </p>
       </div>
     </div>

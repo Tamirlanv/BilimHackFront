@@ -12,7 +12,8 @@ import {
   getSubjects,
 } from "@/lib/api";
 import { getToken } from "@/lib/auth";
-import { HistoryItem, StudentProgress, Subject } from "@/lib/types";
+import { tr, useUiLanguage } from "@/lib/i18n";
+import { HistoryItem, Language, StudentProgress, Subject } from "@/lib/types";
 import styles from "@/app/progress/progress.module.css";
 
 interface MetricItem {
@@ -28,7 +29,7 @@ interface SubjectMetricItem {
   value: string;
 }
 
-const SUBJECT_FALLBACK = [
+const SUBJECT_FALLBACK_RU = [
   "Математика",
   "Алгебра",
   "Геометрия",
@@ -40,12 +41,28 @@ const SUBJECT_FALLBACK = [
   "Химия",
 ];
 
+const SUBJECT_FALLBACK_KZ = [
+  "Математика",
+  "Алгебра",
+  "Геометрия",
+  "Физика",
+  "Ағылшын тілі",
+  "Орыс тілі",
+  "Дүниежүзі тарихы",
+  "Биология",
+  "Химия",
+];
+
 export default function TeacherStudentAnalyticsPage() {
   const params = useParams<{ id: string }>();
   const searchParams = useSearchParams();
   const studentId = Number(params.id);
+  const uiLanguage = useUiLanguage();
+  const t = (ru: string, kz: string) => tr(uiLanguage, ru, kz);
   const studentName = (searchParams.get("name") || "").trim();
-  const studentTitle = studentName ? `Аналитика ученика ${studentName}` : `Аналитика ученика #${studentId}`;
+  const studentTitle = studentName
+    ? `${t("Аналитика ученика", "Оқушы аналитикасы")} ${studentName}`
+    : `${t("Аналитика ученика", "Оқушы аналитикасы")} #${studentId}`;
 
   const [progress, setProgress] = useState<StudentProgress | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
@@ -69,7 +86,7 @@ export default function TeacherStudentAnalyticsPage() {
         setHistory(historyPayload);
       } catch (err) {
         if (!isCancelled) {
-          setError(err instanceof Error ? err.message : "Не удалось загрузить аналитику ученика");
+          setError(err instanceof Error ? err.message : t("Не удалось загрузить аналитику ученика", "Оқушы аналитикасын жүктеу мүмкін болмады"));
         }
       } finally {
         if (!isCancelled) {
@@ -90,7 +107,7 @@ export default function TeacherStudentAnalyticsPage() {
     return () => {
       isCancelled = true;
     };
-  }, [studentId]);
+  }, [studentId, uiLanguage]);
 
   const sortedByPercent = useMemo(
     () => history.slice().sort((left, right) => right.percent - left.percent),
@@ -101,14 +118,14 @@ export default function TeacherStudentAnalyticsPage() {
   const worstAttempt = sortedByPercent[sortedByPercent.length - 1] || null;
 
   const favoriteSubject = useMemo(() => {
-    if (history.length === 0) return "Нет данных";
+    if (history.length === 0) return t("Нет данных", "Дерек жоқ");
     const counter = new Map<string, number>();
     for (const item of history) {
       const title = attemptTitle(item);
       counter.set(title, (counter.get(title) || 0) + 1);
     }
-    return [...counter.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] || "Нет данных";
-  }, [history]);
+    return [...counter.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] || t("Нет данных", "Дерек жоқ");
+  }, [history, t]);
 
   const alignmentPercent = useMemo(() => {
     const avg = progress?.avg_percent ?? 0;
@@ -147,60 +164,77 @@ export default function TeacherStudentAnalyticsPage() {
     return [
       {
         id: "avg",
-        label: "Средняя успеваемость",
-        meta: "По всем попыткам",
+        label: t("Средняя успеваемость", "Орташа үлгерім"),
+        meta: t("По всем попыткам", "Барлық талпыныс бойынша"),
         value: formatPercent(progress?.avg_percent ?? 0),
       },
       {
         id: "best",
-        label: "Лучший результат",
-        meta: bestAttempt ? `${attemptTitle(bestAttempt)} (${difficultyLabel(bestAttempt.difficulty)})` : "Пока нет данных",
+        label: t("Лучший результат", "Ең үздік нәтиже"),
+        meta: bestAttempt
+          ? `${attemptTitle(bestAttempt)} (${difficultyLabel(bestAttempt.difficulty, uiLanguage)})`
+          : t("Пока нет данных", "Әзірге дерек жоқ"),
         value: formatPercent(progress?.best_percent ?? 0),
       },
       {
         id: "total",
-        label: "Всего тестов",
-        meta: "За все время",
+        label: t("Всего тестов", "Барлық тест саны"),
+        meta: t("За все время", "Барлық уақыт ішінде"),
         value: String(progress?.total_tests ?? 0),
       },
       {
         id: "alignment",
-        label: "Соответствие",
-        meta: "Относительно образования",
+        label: t("Соответствие", "Сәйкестік"),
+        meta: t("Относительно образования", "Білім деңгейіне қатысты"),
         value: `${alignmentPercent}%`,
       },
       {
         id: "worst",
-        label: "Худший результат",
-        meta: worstAttempt ? `${attemptTitle(worstAttempt)} (${difficultyLabel(worstAttempt.difficulty)})` : "Пока нет данных",
-        value: worstAttempt ? formatPercent(worstAttempt.percent) : "0%",
+        label: t("Худший результат", "Ең төмен нәтиже"),
+        meta: worstAttempt
+          ? `${attemptTitle(worstAttempt)} (${difficultyLabel(worstAttempt.difficulty, uiLanguage)})`
+          : t("Пока нет данных", "Әзірге дерек жоқ"),
+        value: worstAttempt ? formatPercent(worstAttempt.percent) : "–",
       },
       {
         id: "favorite",
-        label: "Любимчик",
-        meta: "Наиболее часто проходимый",
-        value: formatSubjectTitle(favoriteSubject),
+        label: t("Любимчик", "Таңдаулы"),
+        meta: t("Наиболее часто проходимый", "Ең жиі өтетін"),
+        value: formatSubjectTitle(favoriteSubject, uiLanguage),
       },
       {
         id: "warnings",
-        label: "Предупреждения",
-        meta: "Подозрение в спекуляции",
+        label: t("Предупреждения", "Ескертулер"),
+        meta: t("Подозрение в спекуляции", "Ереже бұзу қаупі"),
         value: String(progress?.total_warnings ?? 0),
       },
       {
         id: "streak",
-        label: "Дней в ударе",
-        meta: "Дней подряд проходите тесты",
+        label: t("Дней в ударе", "Белсенді күндер"),
+        meta: t("Дней подряд проходите тесты", "Тесттерді қатарынан өткен күндер"),
         value: String(streakDays),
       },
       {
         id: "today",
-        label: "Тесты за сегодня",
-        meta: "Пройденных тестов",
+        label: t("Тесты за сегодня", "Бүгінгі тесттер"),
+        meta: t("Пройденных тестов", "Өткен тест саны"),
         value: String(testsToday),
       },
     ];
-  }, [alignmentPercent, bestAttempt, favoriteSubject, progress?.avg_percent, progress?.best_percent, progress?.total_tests, progress?.total_warnings, streakDays, testsToday, worstAttempt]);
+  }, [
+    alignmentPercent,
+    bestAttempt,
+    favoriteSubject,
+    progress?.avg_percent,
+    progress?.best_percent,
+    progress?.total_tests,
+    progress?.total_warnings,
+    streakDays,
+    t,
+    testsToday,
+    uiLanguage,
+    worstAttempt,
+  ]);
 
   const subjectMetrics = useMemo<SubjectMetricItem[]>(() => {
     const byNormalizedName = new Map<string, number>();
@@ -213,8 +247,15 @@ export default function TeacherStudentAnalyticsPage() {
 
     const namesFromApi =
       subjects.length > 0
-        ? subjects.map((subject) => subject.name_ru || subject.name_kz || `Предмет #${subject.id}`)
-        : SUBJECT_FALLBACK;
+        ? subjects.map((subject) => {
+            if (uiLanguage === "KZ") {
+              return subject.name_kz || subject.name_ru || `Пән #${subject.id}`;
+            }
+            return subject.name_ru || subject.name_kz || `Предмет #${subject.id}`;
+          })
+        : uiLanguage === "KZ"
+          ? SUBJECT_FALLBACK_KZ
+          : SUBJECT_FALLBACK_RU;
 
     for (const name of namesFromApi) {
       const key = normalizeName(name);
@@ -240,7 +281,7 @@ export default function TeacherStudentAnalyticsPage() {
         value: hasResult && typeof value === "number" ? formatPercent(value) : "–",
       };
     });
-  }, [progress?.subject_stats, subjects]);
+  }, [progress?.subject_stats, subjects, uiLanguage]);
 
   const exportRows = useMemo(() => {
     const rows: Array<{ label: string; value: string }> = [];
@@ -248,18 +289,21 @@ export default function TeacherStudentAnalyticsPage() {
       rows.push({ label: item.label, value: item.value });
     }
     for (const subject of subjectMetrics) {
-      rows.push({ label: `Предмет: ${subject.name}`, value: subject.value });
+      rows.push({ label: `${t("Предмет", "Пән")}: ${subject.name}`, value: subject.value });
     }
     return rows;
-  }, [metrics, subjectMetrics]);
+  }, [metrics, subjectMetrics, t]);
 
   const exportCsv = () => {
-    const rows = ["Показатель,Значение", ...exportRows.map((item) => `${toCsvCell(item.label)},${toCsvCell(item.value)}`)];
+    const rows = [
+      `${t("Показатель", "Көрсеткіш")},${t("Значение", "Мәні")}`,
+      ...exportRows.map((item) => `${toCsvCell(item.label)},${toCsvCell(item.value)}`),
+    ];
     const blob = new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `student-${studentId}-analytics.csv`;
+    link.download = uiLanguage === "KZ" ? `student-${studentId}-analitika.csv` : `student-${studentId}-analytics.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -271,7 +315,7 @@ export default function TeacherStudentAnalyticsPage() {
       <AuthGuard roles={["teacher"]}>
         <AppShell>
           <div className={styles.page}>
-            <p className="muted">Загрузка...</p>
+              <p className="muted">{t("Загрузка...", "Жүктелуде...")}</p>
           </div>
         </AppShell>
       </AuthGuard>
@@ -285,7 +329,7 @@ export default function TeacherStudentAnalyticsPage() {
           <section className={`${styles.section} ${styles.primarySection}`}>
             <div className={styles.sectionHeaderCentered}>
               <h2 className={styles.sectionTitle}>{studentTitle}</h2>
-              <p className={styles.sectionSubtitle}>Краткий пересказ текущего прогресса</p>
+              <p className={styles.sectionSubtitle}>{t("Краткий пересказ текущего прогресса", "Ағымдағы прогрестің қысқаша көрінісі")}</p>
             </div>
 
             {error && <div className="errorText">{error}</div>}
@@ -303,15 +347,15 @@ export default function TeacherStudentAnalyticsPage() {
 
           <section className={styles.section}>
             <div className={styles.sectionHeaderCentered}>
-              <h2 className={styles.sectionTitle}>По предметам</h2>
-              <p className={styles.sectionSubtitle}>Статистика ученика по отдельным предметам</p>
+              <h2 className={styles.sectionTitle}>{t("По предметам", "Пәндер бойынша")}</h2>
+              <p className={styles.sectionSubtitle}>{t("Статистика ученика по отдельным предметам", "Оқушының жекелеген пәндер бойынша статистикасы")}</p>
             </div>
 
             <div className={styles.subjectGrid}>
               {subjectMetrics.map((item) => (
                 <article className={styles.subjectItem} key={item.id}>
                   <h3 className={styles.metricLabel}>{item.name}</h3>
-                  <p className={styles.metricMeta}>По всем попыткам</p>
+                  <p className={styles.metricMeta}>{t("По всем попыткам", "Барлық талпыныс бойынша")}</p>
                   <p className={styles.metricValue}>{item.value}</p>
                 </article>
               ))}
@@ -319,10 +363,10 @@ export default function TeacherStudentAnalyticsPage() {
           </section>
 
           <section className={styles.exportSection}>
-            <h3 className={styles.exportTitle}>Экспортировать статистику</h3>
+            <h3 className={styles.exportTitle}>{t("Экспортировать статистику", "Статистиканы экспорттау")}</h3>
             <div className={styles.exportActions}>
               <Button className={styles.exportButton} onClick={exportCsv}>
-                Скачать .csv
+                {t("Скачать .csv", ".csv жүктеу")}
               </Button>
             </div>
           </section>
@@ -339,10 +383,10 @@ function normalizeName(value: string): string {
     .replace(/[^a-zа-я0-9әіңғүұқөһ]/gi, "");
 }
 
-function difficultyLabel(value: HistoryItem["difficulty"]): string {
-  if (value === "easy") return "Легкий";
-  if (value === "hard") return "Сложный";
-  return "Средний";
+function difficultyLabel(value: HistoryItem["difficulty"], language: Language): string {
+  if (value === "easy") return tr(language, "Легкий", "Жеңіл");
+  if (value === "hard") return tr(language, "Сложный", "Күрделі");
+  return tr(language, "Средний", "Орташа");
 }
 
 function attemptTitle(item: Pick<HistoryItem, "subject_name" | "exam_kind">): string {
@@ -357,8 +401,8 @@ function formatPercent(value: number): string {
   return `${rounded.toFixed(1)}%`;
 }
 
-function formatSubjectTitle(value: string): string {
-  if (!value || value === "Нет данных") return "Нет данных";
+function formatSubjectTitle(value: string, language: Language): string {
+  if (!value || value === "Нет данных" || value === "Дерек жоқ") return tr(language, "Нет данных", "Дерек жоқ");
   const normalized = normalizeName(value);
   if (normalized.includes("ielts")) return "IELTS";
   if (normalized.includes("ент") || normalized.includes("ent")) return "ЕНТ";

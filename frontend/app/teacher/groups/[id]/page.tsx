@@ -13,8 +13,11 @@ import {
   sendTeacherInvitation,
 } from "@/lib/api";
 import { getToken } from "@/lib/auth";
+import { tr, useUiLanguage } from "@/lib/i18n";
 import { TeacherGroupMembers, TeacherInvitation } from "@/lib/types";
 import styles from "@/app/teacher/groups/[id]/group-detail.module.css";
+
+const MAX_GROUP_MEMBERS = 5;
 
 function buildStudentAnalyticsHref(studentId: number, studentName?: string) {
   const params = new URLSearchParams();
@@ -30,6 +33,8 @@ export default function TeacherGroupDetailPage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
   const groupId = Number(params.id);
+  const uiLanguage = useUiLanguage();
+  const t = (ru: string, kz: string) => tr(uiLanguage, ru, kz);
 
   const [group, setGroup] = useState<TeacherGroupMembers | null>(null);
   const [invitations, setInvitations] = useState<TeacherInvitation[]>([]);
@@ -44,6 +49,7 @@ export default function TeacherGroupDetailPage() {
     () => invitations.filter((item) => item.group_id === groupId).slice(0, 8),
     [groupId, invitations],
   );
+  const groupFull = Boolean(group && group.members.length >= MAX_GROUP_MEMBERS);
 
   const loadData = async (silent = false) => {
     const token = getToken();
@@ -61,7 +67,7 @@ export default function TeacherGroupDetailPage() {
       setInvitations(invitationsPayload);
       setError("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось загрузить группу");
+      setError(err instanceof Error ? err.message : t("Не удалось загрузить группу", "Топты жүктеу мүмкін болмады"));
     } finally {
       if (!silent) {
         setLoading(false);
@@ -72,7 +78,7 @@ export default function TeacherGroupDetailPage() {
   useEffect(() => {
     loadData().catch((err) => {
       setLoading(false);
-      setError(err instanceof Error ? err.message : "Не удалось загрузить группу");
+      setError(err instanceof Error ? err.message : t("Не удалось загрузить группу", "Топты жүктеу мүмкін болмады"));
     });
 
     const timer = window.setInterval(() => {
@@ -87,10 +93,14 @@ export default function TeacherGroupDetailPage() {
   const sendInviteToGroup = async () => {
     const token = getToken();
     if (!token || !Number.isFinite(groupId)) return;
+    if (groupFull) {
+      setError(t("В этой группе уже достигнут лимит участников.", "Бұл топта қатысушылар лимиті толды."));
+      return;
+    }
 
     const username = inviteUsername.trim();
     if (!username) {
-      setError("Введите username ученика.");
+      setError(t("Введите username ученика.", "Оқушының username-ын енгізіңіз."));
       return;
     }
 
@@ -101,10 +111,10 @@ export default function TeacherGroupDetailPage() {
       await sendTeacherInvitation(token, { username, group_id: groupId });
       setInviteUsername("");
       setInviteModalOpen(false);
-      setSuccess("Приглашение отправлено. После принятия ученик автоматически появится в группе.");
+      setSuccess(t("Приглашение отправлено. После принятия ученик автоматически появится в группе.", "Шақыру жіберілді. Қабылдағаннан кейін оқушы топта автоматты түрде пайда болады."));
       await loadData(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось отправить приглашение");
+      setError(err instanceof Error ? err.message : t("Не удалось отправить приглашение", "Шақыру жіберу мүмкін болмады"));
     } finally {
       setInviteLoading(false);
     }
@@ -116,13 +126,20 @@ export default function TeacherGroupDetailPage() {
         <div className={styles.page}>
           <header className={styles.header}>
             <div>
-              <h2>{group?.name || "Группа"}</h2>
-              <p>Список участников и быстрый переход к аналитике ученика.</p>
+              <h2>{group?.name || t("Группа", "Топ")}</h2>
+              <p>{t("Список участников и быстрый переход к аналитике ученика.", "Қатысушылар тізімі және оқушы аналитикасына жылдам өту.")}</p>
             </div>
-            <Button onClick={() => setInviteModalOpen(true)}>Добавить ученика</Button>
+            <Button onClick={() => setInviteModalOpen(true)} disabled={groupFull}>
+              {t("Добавить ученика", "Оқушы қосу")}
+            </Button>
           </header>
+          {group && (
+            <p className="muted">
+              {t("Участников", "Қатысушы")}: {group.members.length} / {MAX_GROUP_MEMBERS}
+            </p>
+          )}
 
-          {loading && <p className="muted">Загрузка...</p>}
+          {loading && <p className="muted">{t("Загрузка...", "Жүктелуде...")}</p>}
           {error && <div className="errorText">{error}</div>}
           {success && <p className={styles.success}>{success}</p>}
 
@@ -131,11 +148,11 @@ export default function TeacherGroupDetailPage() {
               <table className={styles.table}>
                 <thead>
                   <tr>
-                    <th>Ученик</th>
+                    <th>{t("Ученик", "Оқушы")}</th>
                     <th>Username</th>
-                    <th>Тестов</th>
-                    <th>Средний балл</th>
-                    <th>Предупреждения</th>
+                    <th>{t("Тестов", "Тест саны")}</th>
+                    <th>{t("Средний балл", "Орташа ұпай")}</th>
+                    <th>{t("Предупреждения", "Ескертулер")}</th>
                     <th />
                   </tr>
                 </thead>
@@ -152,7 +169,7 @@ export default function TeacherGroupDetailPage() {
                           variant="secondary"
                           onClick={() => router.push(buildStudentAnalyticsHref(member.student_id, member.full_name || member.username))}
                         >
-                          Открыть
+                          {t("Открыть", "Ашу")}
                         </Button>
                       </td>
                     </tr>
@@ -163,13 +180,13 @@ export default function TeacherGroupDetailPage() {
           )}
 
           {!loading && group && group.members.length === 0 && (
-            <p className="muted">В этой группе пока нет учеников.</p>
+            <p className="muted">{t("В этой группе пока нет учеников.", "Бұл топта әзірге оқушылар жоқ.")}</p>
           )}
 
           <section className={styles.invitationSection}>
-            <h3>Приглашения в группу</h3>
+            <h3>{t("Приглашения в группу", "Топқа шақырулар")}</h3>
             {groupInvitations.length === 0 ? (
-              <p className="muted">Пока приглашений для этой группы нет.</p>
+              <p className="muted">{t("Пока приглашений для этой группы нет.", "Бұл топ үшін шақырулар әзірге жоқ.")}</p>
             ) : (
               <div className={styles.invitationList}>
                 {groupInvitations.map((invitation) => (
@@ -178,7 +195,7 @@ export default function TeacherGroupDetailPage() {
                       <h4>{invitation.student_name || invitation.student_username}</h4>
                       <p>@{invitation.student_username}</p>
                     </div>
-                    <span className={`${styles.status} ${styles[invitation.status]}`}>{statusLabel(invitation.status)}</span>
+                    <span className={`${styles.status} ${styles[invitation.status]}`}>{statusLabel(invitation.status, uiLanguage)}</span>
                   </article>
                 ))}
               </div>
@@ -193,26 +210,26 @@ export default function TeacherGroupDetailPage() {
                 type="button"
                 className={styles.close}
                 onClick={() => setInviteModalOpen(false)}
-                aria-label="Закрыть"
+                aria-label={t("Закрыть", "Жабу")}
               >
                 <X size={16} />
               </button>
-              <h3>Добавить ученика в группу</h3>
-              <p>Введите username ученика. Он получит приглашение в разделе профиля.</p>
+              <h3>{t("Добавить ученика в группу", "Оқушыны топқа қосу")}</h3>
+              <p>{t("Введите username ученика. Он получит приглашение в разделе профиля.", "Оқушының username-ын енгізіңіз. Ол профиль бөлімінде шақыру алады.")}</p>
               <label>
-                Username ученика
+                {t("Username ученика", "Оқушы username-ы")}
                 <input
                   maxLength={25}
-                  placeholder="например student_demo_1"
+                  placeholder={t("например student_demo_1", "мысалы student_demo_1")}
                   value={inviteUsername}
                   onChange={(event) => setInviteUsername(event.target.value)}
                 />
               </label>
               <div className={styles.modalActions}>
                 <Button onClick={sendInviteToGroup} disabled={inviteLoading}>
-                  {inviteLoading ? "Отправляем..." : "Отправить приглашение"}
+                  {inviteLoading ? t("Отправляем...", "Жіберілуде...") : t("Отправить приглашение", "Шақыру жіберу")}
                 </Button>
-                <Button variant="ghost" onClick={() => setInviteModalOpen(false)}>Отмена</Button>
+                <Button variant="ghost" onClick={() => setInviteModalOpen(false)}>{t("Отмена", "Бас тарту")}</Button>
               </div>
             </section>
           </div>
@@ -222,8 +239,8 @@ export default function TeacherGroupDetailPage() {
   );
 }
 
-function statusLabel(status: TeacherInvitation["status"]): string {
-  if (status === "accepted") return "Принято";
-  if (status === "declined") return "Отклонено";
-  return "Ожидает";
+function statusLabel(status: TeacherInvitation["status"], language: "RU" | "KZ"): string {
+  if (status === "accepted") return tr(language, "Принято", "Қабылданды");
+  if (status === "declined") return tr(language, "Отклонено", "Қабылданбады");
+  return tr(language, "Ожидает", "Күтілуде");
 }

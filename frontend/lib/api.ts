@@ -34,7 +34,7 @@ async function apiRequest<T>(
   });
 
   if (!response.ok) {
-    let detail = `Ошибка запроса: ${response.status}`;
+    let detail = `Request failed / Сұрау қатесі: ${response.status}`;
     try {
       const payload = await response.json();
       detail = payload.detail || detail;
@@ -135,7 +135,7 @@ export async function getQuestionTtsAudio(token: string, testId: number, questio
   });
 
   if (!response.ok) {
-    let detail = `Ошибка запроса: ${response.status}`;
+    let detail = `Request failed / Сұрау қатесі: ${response.status}`;
     try {
       const payload = await response.json();
       detail = payload.detail || detail;
@@ -210,7 +210,7 @@ export function getTeacherGroups(token: string) {
 
 export function createTeacherGroup(
   token: string,
-  body: { name: string; student_ids: number[] },
+  body: { name: string; student_ids?: number[] },
 ) {
   return apiRequest<TeacherGroup>("/teacher/groups", {
     method: "POST",

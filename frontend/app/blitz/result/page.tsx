@@ -7,10 +7,13 @@ import AppShell from "@/components/AppShell";
 import AuthGuard from "@/components/AuthGuard";
 import Button from "@/components/ui/Button";
 import { BLITZ_LAST_RESULT_KEY, BlitzResultPayload, parseBlitzResultPayload } from "@/lib/blitz";
+import { tr, useUiLanguage } from "@/lib/i18n";
 import styles from "@/app/blitz/result/result.module.css";
 
 export default function BlitzResultPage() {
   const router = useRouter();
+  const uiLanguage = useUiLanguage();
+  const t = (ru: string, kz: string) => tr(uiLanguage, ru, kz);
   const [result, setResult] = useState<BlitzResultPayload | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -32,7 +35,7 @@ export default function BlitzResultPage() {
       <AuthGuard roles={["student"]}>
         <AppShell>
           <div className={styles.page}>
-            <section className={styles.stateCard}>Загружаем итоги блица...</section>
+            <section className={styles.stateCard}>{t("Загружаем итоги блица...", "Блиц қорытындысы жүктелуде...")}</section>
           </div>
         </AppShell>
       </AuthGuard>
@@ -45,9 +48,9 @@ export default function BlitzResultPage() {
         <AppShell>
           <div className={styles.page}>
             <section className={styles.stateCard}>
-              <h2 className={styles.stateTitle}>Итоги не найдены</h2>
-              <p className={styles.stateText}>Сначала завершите блиц, затем откройте страницу результатов.</p>
-              <Button onClick={() => router.push("/blitz")}>Перейти в блиц</Button>
+              <h2 className={styles.stateTitle}>{t("Итоги не найдены", "Қорытынды табылмады")}</h2>
+              <p className={styles.stateText}>{t("Сначала завершите блиц, затем откройте страницу результатов.", "Алдымен блицті аяқтап, содан кейін нәтижелер бетін ашыңыз.")}</p>
+              <Button onClick={() => router.push("/blitz")}>{t("Перейти в блиц", "Блицке өту")}</Button>
             </section>
           </div>
         </AppShell>
@@ -61,63 +64,67 @@ export default function BlitzResultPage() {
         <div className={styles.page}>
           <section className={styles.section}>
             <header className={styles.header}>
-              <h2 className={styles.title}>Итоги блица</h2>
-              <p className={styles.subtitle}>Результат и персональная рекомендация</p>
+              <h2 className={styles.title}>{t("Итоги блица", "Блиц қорытындысы")}</h2>
+              <p className={styles.subtitle}>{t("Результат и персональная рекомендация", "Нәтиже және жеке ұсыныс")}</p>
             </header>
 
             <div className={styles.summaryGrid}>
               <article className={styles.scoreCard}>
-                <p className={styles.scoreLabel}>Ваш результат</p>
+                <p className={styles.scoreLabel}>{t("Ваш результат", "Сіздің нәтижеңіз")}</p>
                 <p className={`${styles.scoreValue} ${scoreClass}`}>{formatPercent(result.percent)}</p>
 
                 <div className={styles.metrics}>
-                  <p className={styles.metricRow}><span>Баллы:</span> <b>{result.correctAnswers} / {result.totalQuestions}</b></p>
-                  <p className={styles.metricRow}><span>Время:</span> <b>{formatDuration(result.totalElapsedSeconds)}</b></p>
-                  <p className={styles.metricRow}><span>Верных:</span> <b>{result.correctAnswers}</b></p>
-                  <p className={styles.metricRow}><span>Ошибок:</span> <b>{result.wrongAnswers}</b></p>
-                  <p className={styles.metricRow}><span>Таймаутов:</span> <b>{result.timedOutAnswers}</b></p>
+                  <p className={styles.metricRow}><span>{t("Баллы", "Ұпай")}:</span> <b>{result.correctAnswers} / {result.totalQuestions}</b></p>
+                  <p className={styles.metricRow}><span>{t("Время", "Уақыт")}:</span> <b>{formatDuration(result.totalElapsedSeconds)}</b></p>
+                  <p className={styles.metricRow}><span>{t("Верных", "Дұрыс")}:</span> <b>{result.correctAnswers}</b></p>
+                  <p className={styles.metricRow}><span>{t("Ошибок", "Қате")}:</span> <b>{result.wrongAnswers}</b></p>
+                  <p className={styles.metricRow}><span>{t("Таймаутов", "Таймаут")}:</span> <b>{result.timedOutAnswers}</b></p>
                 </div>
               </article>
 
               <article className={styles.recommendationCard}>
-                <h3 className={styles.recommendationTitle}>Рекомендации</h3>
+                <h3 className={styles.recommendationTitle}>{t("Рекомендации", "Ұсыныстар")}</h3>
                 <p className={styles.recommendationText}>{result.recommendation}</p>
                 {result.weakTopics.length > 0 ? (
-                  <p className={styles.weakTopics}>Слабые темы: {result.weakTopics.join(", ")}.</p>
+                  <p className={styles.weakTopics}>{t("Слабые темы", "Әлсіз тақырыптар")}: {result.weakTopics.join(", ")}.</p>
                 ) : (
-                  <p className={styles.weakTopics}>Слабых тем по этому блицу не обнаружено.</p>
+                  <p className={styles.weakTopics}>{t("Слабых тем по этому блицу не обнаружено.", "Бұл блиц бойынша әлсіз тақырыптар анықталмады.")}</p>
                 )}
               </article>
             </div>
 
             <div className={styles.actionsRow}>
-              <Button className={styles.homeButton} onClick={() => router.push("/dashboard")}>На главную</Button>
-              <button className={styles.retryButton} type="button" onClick={() => router.push("/blitz")}>Пройти заново</button>
+              <Button className={styles.homeButton} onClick={() => router.push("/dashboard")}>{t("На главную", "Басты бетке")}</Button>
+              <button className={styles.retryButton} type="button" onClick={() => router.push("/blitz")}>{t("Пройти заново", "Қайта өту")}</button>
             </div>
           </section>
 
           <section className={styles.section}>
             <header className={styles.sectionHeader}>
-              <h3 className={styles.sectionTitle}>Разбор ответов</h3>
+              <h3 className={styles.sectionTitle}>{t("Разбор ответов", "Жауаптарды талдау")}</h3>
             </header>
 
             <div className={styles.answerGrid}>
               {result.answers.map((item, index) => {
                 const statusClass = item.isCorrect ? styles.answerCorrect : styles.answerWrong;
-                const statusText = item.timedOut ? "Время вышло" : item.isCorrect ? "Верно" : "Неверно";
+                const statusText = item.timedOut
+                  ? t("Время вышло", "Уақыт бітті")
+                  : item.isCorrect
+                    ? t("Верно", "Дұрыс")
+                    : t("Неверно", "Қате");
 
                 return (
                   <article className={styles.answerCard} key={`${item.questionId}-${index}`}>
-                    <p className={styles.fieldLabel}>Вопрос {index + 1}</p>
+                    <p className={styles.fieldLabel}>{t("Вопрос", "Сұрақ")} {index + 1}</p>
                     <p className={styles.questionText}>{item.prompt}</p>
 
-                    <p className={styles.fieldLabel}>Ваш ответ</p>
-                    <p className={styles.answerText}>{item.userAnswer === null ? "Нет ответа" : item.userAnswer ? "Да" : "Нет"}</p>
+                    <p className={styles.fieldLabel}>{t("Ваш ответ", "Сіздің жауабыңыз")}</p>
+                    <p className={styles.answerText}>{item.userAnswer === null ? t("Нет ответа", "Жауап жоқ") : item.userAnswer ? t("Да", "Иә") : t("Нет", "Жоқ")}</p>
 
-                    <p className={styles.fieldLabel}>Правильный ответ</p>
-                    <p className={styles.answerText}>{item.correctAnswer ? "Да" : "Нет"}</p>
+                    <p className={styles.fieldLabel}>{t("Правильный ответ", "Дұрыс жауап")}</p>
+                    <p className={styles.answerText}>{item.correctAnswer ? t("Да", "Иә") : t("Нет", "Жоқ")}</p>
 
-                    <p className={styles.fieldLabel}>Статус</p>
+                    <p className={styles.fieldLabel}>{t("Статус", "Мәртебе")}</p>
                     <p className={`${styles.statusText} ${statusClass}`}>{statusText}</p>
                   </article>
                 );

@@ -8,6 +8,7 @@ import AuthGuard from "@/components/AuthGuard";
 import Button from "@/components/ui/Button";
 import { generateExamTest, generateTest, getSubjects } from "@/lib/api";
 import { getToken } from "@/lib/auth";
+import { tr, useUiLanguage } from "@/lib/i18n";
 import { Difficulty, Language, Mode, Subject } from "@/lib/types";
 import { assetPaths } from "@/src/assets";
 import styles from "@/app/test/test-setup.module.css";
@@ -29,8 +30,10 @@ type ExamType = "ent" | "ielts";
 
 interface ModeInfo {
   value: Mode;
-  title: string;
-  description: string;
+  title_ru: string;
+  title_kz: string;
+  description_ru: string;
+  description_kz: string;
   icon: string;
 }
 
@@ -48,28 +51,36 @@ interface SubjectCatalogItem {
 
 interface ExamCard {
   key: ExamType;
-  title: string;
-  description: string;
+  title_ru: string;
+  title_kz: string;
+  description_ru: string;
+  description_kz: string;
   icon: string;
 }
 
 const MODES: ModeInfo[] = [
   {
     value: "text",
-    title: "Стандартный",
-    description: "Классический режим: чтение вопроса и ответы в текстовом формате.",
+    title_ru: "Стандартный",
+    title_kz: "Стандартты",
+    description_ru: "Классический режим: чтение вопроса и ответы в текстовом формате.",
+    description_kz: "Классикалық режим: сұрақты оқу және мәтін түрінде жауап беру.",
     icon: assetPaths.icons.text,
   },
   {
     value: "audio",
-    title: "Аудио",
-    description: "Режим, где вы можете воспроизводить вопросы в аудио формате.",
+    title_ru: "Аудио",
+    title_kz: "Аудио",
+    description_ru: "Режим, где вы можете воспроизводить вопросы в аудио формате.",
+    description_kz: "Сұрақтарды аудио форматта тыңдауға болатын режим.",
     icon: assetPaths.icons.headphones,
   },
   {
     value: "oral",
-    title: "Устный",
-    description: "Режим для устных ответов: вы говорите, а система оценивает ответ.",
+    title_ru: "Устный",
+    title_kz: "Ауызша",
+    description_ru: "Режим для устных ответов: вы говорите, а система оценивает ответ.",
+    description_kz: "Ауызша жауап беру режимі: сіз сөйлейсіз, жүйе жауапты бағалайды.",
     icon: assetPaths.icons.microphone,
   },
 ];
@@ -77,14 +88,18 @@ const MODES: ModeInfo[] = [
 const EXAM_CARDS: ExamCard[] = [
   {
     key: "ent",
-    title: "ЕНТ",
-    description: "Национальный экзаменационный режим с фиксированной структурой заданий и таймером.",
+    title_ru: "ЕНТ",
+    title_kz: "ҰБТ",
+    description_ru: "Национальный экзаменационный режим с фиксированной структурой заданий и таймером.",
+    description_kz: "Белгіленген құрылымы мен таймері бар ұлттық емтихан режимі.",
     icon: assetPaths.icons.ent,
   },
   {
     key: "ielts",
-    title: "IELTS",
-    description: "Режим международного экзамена с частями Listening, Reading, Writing и Speaking.",
+    title_ru: "IELTS",
+    title_kz: "IELTS",
+    description_ru: "Режим международного экзамена с частями Listening, Reading, Writing и Speaking.",
+    description_kz: "Listening, Reading, Writing және Speaking бөлімдері бар халықаралық емтихан режимі.",
     icon: assetPaths.icons.ielts,
   },
 ];
@@ -191,21 +206,21 @@ const SUBJECT_TEMPLATE: Array<Omit<SubjectCatalogItem, "subject_id" | "available
   },
 ];
 
-const DIFFICULTIES: Array<{ value: Difficulty; title: string }> = [
-  { value: "easy", title: "Лёгкий" },
-  { value: "medium", title: "Средний" },
-  { value: "hard", title: "Сложный" },
+const DIFFICULTIES: Array<{ value: Difficulty; title_ru: string; title_kz: string }> = [
+  { value: "easy", title_ru: "Лёгкий", title_kz: "Жеңіл" },
+  { value: "medium", title_ru: "Средний", title_kz: "Орташа" },
+  { value: "hard", title_ru: "Сложный", title_kz: "Күрделі" },
 ];
 
 const QUESTION_COUNTS = [5, 10, 15, 20, 25] as const;
 const TIME_LIMIT_OPTIONS = [5, 10, 20, 30, 60] as const;
 
 const ENT_PROFILE_SUBJECTS = [
-  { key: "математика", title: "Математика", iconKey: "math" as const },
-  { key: "физика", title: "Физика", iconKey: "physics" as const },
-  { key: "биология", title: "Биология", iconKey: "biology" as const },
-  { key: "химия", title: "Химия", iconKey: "chemistry" as const },
-  { key: "информатика", title: "Информатика", iconKey: "informatics" as const },
+  { key: "математика", title_ru: "Математика", title_kz: "Математика", iconKey: "math" as const },
+  { key: "физика", title_ru: "Физика", title_kz: "Физика", iconKey: "physics" as const },
+  { key: "биология", title_ru: "Биология", title_kz: "Биология", iconKey: "biology" as const },
+  { key: "химия", title_ru: "Химия", title_kz: "Химия", iconKey: "chemistry" as const },
+  { key: "информатика", title_ru: "Информатика", title_kz: "Информатика", iconKey: "informatics" as const },
 ];
 
 const ICON_BY_SUBJECT: Record<SubjectIconKey, string> = {
@@ -231,11 +246,13 @@ function normalizeSubjectName(value: string): string {
 
 export default function TestSetupPage() {
   const router = useRouter();
+  const uiLanguage = useUiLanguage();
+  const t = (ru: string, kz: string) => tr(uiLanguage, ru, kz);
 
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [subjectId, setSubjectId] = useState<number | null>(null);
   const [difficulty, setDifficulty] = useState<Difficulty>("medium");
-  const [language, setLanguage] = useState<Language>("RU");
+  const [language, setLanguage] = useState<Language>(uiLanguage);
   const [mode, setMode] = useState<Mode>("text");
   const [numQuestions, setNumQuestions] = useState(10);
   const [timeLimitMinutes, setTimeLimitMinutes] = useState<(typeof TIME_LIMIT_OPTIONS)[number]>(20);
@@ -257,8 +274,14 @@ export default function TestSetupPage() {
         setSubjects(data);
         setSubjectId(null);
       })
-      .catch((err) => setError(err instanceof Error ? err.message : "Не удалось загрузить предметы"));
-  }, []);
+      .catch((err) =>
+        setError(err instanceof Error ? err.message : t("Не удалось загрузить предметы", "Пәндерді жүктеу мүмкін болмады")),
+      );
+  }, [uiLanguage]);
+
+  useEffect(() => {
+    setLanguage(uiLanguage);
+  }, [uiLanguage]);
 
   useEffect(() => {
     if (!isSettingsModalOpen && !isExamModalOpen) return;
@@ -351,7 +374,7 @@ export default function TestSetupPage() {
   }, [entProfileOptions, entProfileSubjectId]);
 
   const selectedSubject = useMemo(() => subjects.find((item) => item.id === subjectId) || null, [subjects, subjectId]);
-  const selectedSubjectTitle = selectedSubject ? (language === "RU" ? selectedSubject.name_ru : selectedSubject.name_kz) : "";
+  const selectedSubjectTitle = selectedSubject ? (uiLanguage === "RU" ? selectedSubject.name_ru : selectedSubject.name_kz) : "";
 
   const closeAllModals = () => {
     if (loading) return;
@@ -385,7 +408,7 @@ export default function TestSetupPage() {
     if (!token) return;
 
     if (!subjectId) {
-      setError("Сначала выберите предмет.");
+      setError(t("Сначала выберите предмет.", "Алдымен пәнді таңдаңыз."));
       return;
     }
 
@@ -404,7 +427,7 @@ export default function TestSetupPage() {
 
       router.push(`/test/${test.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось сгенерировать тест");
+      setError(err instanceof Error ? err.message : t("Не удалось сгенерировать тест", "Тестті генерациялау мүмкін болмады"));
     } finally {
       setLoading(false);
     }
@@ -414,12 +437,12 @@ export default function TestSetupPage() {
     const token = getToken();
     if (!token) return;
     if (!selectedExamType) {
-      setError("Выберите экзамен.");
+      setError(t("Выберите экзамен.", "Емтиханды таңдаңыз."));
       return;
     }
 
     if (selectedExamType === "ent" && !entProfileSubjectId) {
-      setError("Для ЕНТ выберите профильный предмет.");
+      setError(t("Для ЕНТ выберите профильный предмет.", "ҰБТ үшін бейіндік пәнді таңдаңыз."));
       return;
     }
 
@@ -435,7 +458,9 @@ export default function TestSetupPage() {
 
       router.push(`/test/${test.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось создать экзаменационный тест");
+      setError(
+        err instanceof Error ? err.message : t("Не удалось создать экзаменационный тест", "Емтихан тестін құру мүмкін болмады"),
+      );
     } finally {
       setLoading(false);
     }
@@ -447,16 +472,22 @@ export default function TestSetupPage() {
         <div className={styles.page}>
           <section className={styles.section}>
             <div className={styles.sectionHeader}>
-              <h2 className={styles.sectionTitle}>Режим прохождения</h2>
-              <p className={styles.sectionSubtitle}>Выберите формат, в котором вам удобнее сдавать тест.</p>
+              <h2 className={styles.sectionTitle}>{t("Режим прохождения", "Өту режимі")}</h2>
+              <p className={styles.sectionSubtitle}>{t("Выберите формат, в котором вам удобнее сдавать тест.", "Тестті қай форматта тапсырған ыңғайлы екенін таңдаңыз.")}</p>
             </div>
             <div className={styles.modeGrid}>
               {MODES.map((item) => (
                 <article className={styles.modeItem} key={item.value}>
-                  <img className={styles.modeIcon} src={item.icon} alt={item.title} />
+                  <img
+                    className={styles.modeIcon}
+                    src={item.icon}
+                    alt={uiLanguage === "RU" ? item.title_ru : item.title_kz}
+                  />
                   <div>
-                    <h3 className={styles.modeTitle}>{item.title}</h3>
-                    <p className={styles.modeText}>{item.description}</p>
+                    <h3 className={styles.modeTitle}>{uiLanguage === "RU" ? item.title_ru : item.title_kz}</h3>
+                    <p className={styles.modeText}>
+                      {uiLanguage === "RU" ? item.description_ru : item.description_kz}
+                    </p>
                   </div>
                 </article>
               ))}
@@ -465,15 +496,15 @@ export default function TestSetupPage() {
 
           <section className={styles.section}>
             <div className={styles.sectionHeader}>
-              <h2 className={styles.sectionTitle}>Общеобразовательные предметы</h2>
-              <p className={styles.sectionSubtitle}>Сначала определите предмет, затем настройте параметры теста.</p>
+              <h2 className={styles.sectionTitle}>{t("Общеобразовательные предметы", "Жалпы білім беру пәндері")}</h2>
+              <p className={styles.sectionSubtitle}>{t("Сначала определите предмет, затем настройте параметры теста.", "Алдымен пәнді таңдаңыз, содан кейін тест параметрлерін баптаңыз.")}</p>
             </div>
 
             <div className={styles.subjectGrid}>
               {subjectCatalog.map((item) => {
                 const isActive = item.subject_id === subjectId && item.available;
-                const title = language === "RU" ? item.name_ru : item.name_kz;
-                const description = language === "RU" ? item.description_ru : item.description_kz;
+                const title = uiLanguage === "RU" ? item.name_ru : item.name_kz;
+                const description = uiLanguage === "RU" ? item.description_ru : item.description_kz;
 
                 return (
                   <button
@@ -482,7 +513,7 @@ export default function TestSetupPage() {
                     className={`${styles.subjectCard} ${isActive ? styles.subjectCardActive : ""} ${!item.available ? styles.subjectCardDisabled : ""}`}
                     onClick={() => {
                       if (!item.available || !item.subject_id) {
-                        setError("Этот предмет скоро станет доступен.");
+                        setError(t("Этот предмет скоро станет доступен.", "Бұл пән жақында қолжетімді болады."));
                         return;
                       }
                       openSubjectSettings(item.subject_id);
@@ -501,8 +532,8 @@ export default function TestSetupPage() {
 
           <section className={styles.section}>
             <div className={styles.sectionHeader}>
-              <h2 className={styles.sectionTitle}>Подготовка к важному</h2>
-              <p className={styles.sectionSubtitle}>Специальные сценарии ЕНТ и IELTS с отдельными правилами прохождения.</p>
+              <h2 className={styles.sectionTitle}>{t("Подготовка к важному", "Маңыздысына дайындық")}</h2>
+              <p className={styles.sectionSubtitle}>{t("Специальные сценарии ЕНТ и IELTS с отдельными правилами прохождения.", "ЕНТ және IELTS үшін жеке өту ережелері бар арнайы сценарийлер.")}</p>
             </div>
 
             <div className={styles.examGrid}>
@@ -513,10 +544,12 @@ export default function TestSetupPage() {
                   className={styles.examCard}
                   onClick={() => openExamSettings(item.key)}
                 >
-                  <img className={styles.examIcon} src={item.icon} alt={item.title} />
+                  <img className={styles.examIcon} src={item.icon} alt={uiLanguage === "RU" ? item.title_ru : item.title_kz} />
                   <div className={styles.subjectBody}>
-                    <h3 className={styles.subjectTitle}>{item.title}</h3>
-                    <p className={styles.subjectDescription}>{item.description}</p>
+                    <h3 className={styles.subjectTitle}>{uiLanguage === "RU" ? item.title_ru : item.title_kz}</h3>
+                    <p className={styles.subjectDescription}>
+                      {uiLanguage === "RU" ? item.description_ru : item.description_kz}
+                    </p>
                   </div>
                 </button>
               ))}
@@ -526,7 +559,9 @@ export default function TestSetupPage() {
           {error && !isSettingsModalOpen && !isExamModalOpen && <div className="errorText">{error}</div>}
 
           <div className={styles.actions}>
-            <Button variant="secondary" onClick={() => router.push("/history")}>История попыток</Button>
+            <Button variant="secondary" onClick={() => router.push("/history")}>
+              {t("История попыток", "Талпыныстар тарихы")}
+            </Button>
           </div>
         </div>
 
@@ -536,16 +571,16 @@ export default function TestSetupPage() {
               className={styles.modal}
               role="dialog"
               aria-modal="true"
-              aria-label="Настройки теста"
+              aria-label={t("Настройки теста", "Тест баптаулары")}
               onClick={(event) => event.stopPropagation()}
             >
               <header className={styles.modalHeader}>
-                <h3>Настройки теста</h3>
-                <p>{selectedSubjectTitle ? `Предмет: ${selectedSubjectTitle}` : "Настройте тест под свои задачи"}</p>
+                <h3>{t("Настройки теста", "Тест баптаулары")}</h3>
+                <p>{selectedSubjectTitle ? `${t("Предмет", "Пән")}: ${selectedSubjectTitle}` : t("Настройте тест под свои задачи", "Тестті өз мақсаттарыңызға сай баптаңыз")}</p>
               </header>
 
               <div className={styles.modalBlock}>
-                <span className={styles.settingLabel}>Сложность</span>
+                <span className={styles.settingLabel}>{t("Сложность", "Күрделілік")}</span>
                 <div className={styles.choiceRow}>
                   {DIFFICULTIES.map((item) => (
                     <button
@@ -554,14 +589,14 @@ export default function TestSetupPage() {
                       className={`${styles.choiceButton} ${difficulty === item.value ? styles.choiceButtonActive : ""}`}
                       onClick={() => setDifficulty(item.value)}
                     >
-                      {item.title}
+                      {uiLanguage === "RU" ? item.title_ru : item.title_kz}
                     </button>
                   ))}
                 </div>
               </div>
 
               <div className={styles.modalBlock}>
-                <span className={styles.settingLabel}>Режим</span>
+                <span className={styles.settingLabel}>{t("Режим", "Режим")}</span>
                 <div className={styles.choiceRow}>
                   {MODES.map((item) => (
                     <button
@@ -570,18 +605,18 @@ export default function TestSetupPage() {
                       className={`${styles.choiceButton} ${mode === item.value ? styles.choiceButtonActive : ""}`}
                       onClick={() => setMode(item.value)}
                     >
-                      {item.title}
+                      {uiLanguage === "RU" ? item.title_ru : item.title_kz}
                     </button>
                   ))}
                 </div>
               </div>
 
               <div className={styles.modalBlock}>
-                <span className={styles.settingLabel}>Язык</span>
+                <span className={styles.settingLabel}>{t("Язык", "Тіл")}</span>
                 <div className={styles.choiceRow}>
                   {([
-                    { value: "RU", title: "Русский" },
-                    { value: "KZ", title: "Казахский" },
+                    { value: "RU", title: t("Русский", "Орысша") },
+                    { value: "KZ", title: t("Казахский", "Қазақша") },
                   ] as const).map((item) => (
                     <button
                       key={item.value}
@@ -596,7 +631,7 @@ export default function TestSetupPage() {
               </div>
 
               <div className={styles.modalBlock}>
-                <span className={styles.settingLabel}>Количество вопросов</span>
+                <span className={styles.settingLabel}>{t("Количество вопросов", "Сұрақ саны")}</span>
                 <div className={styles.choiceRow}>
                   {QUESTION_COUNTS.map((value) => (
                     <button
@@ -612,7 +647,7 @@ export default function TestSetupPage() {
               </div>
 
               <div className={styles.modalBlock}>
-                <span className={styles.settingLabel}>Лимит времени</span>
+                <span className={styles.settingLabel}>{t("Лимит времени", "Уақыт лимиті")}</span>
                 <div className={styles.choiceRow}>
                   {TIME_LIMIT_OPTIONS.map((value) => (
                     <button
@@ -621,7 +656,7 @@ export default function TestSetupPage() {
                       className={`${styles.choiceButton} ${timeLimitMinutes === value ? styles.choiceButtonActive : ""}`}
                       onClick={() => setTimeLimitMinutes(value)}
                     >
-                      {value < 60 ? `${value} мин` : "1 час"}
+                      {value < 60 ? `${value} ${t("мин", "мин")}` : t("1 час", "1 сағат")}
                     </button>
                   ))}
                 </div>
@@ -631,10 +666,10 @@ export default function TestSetupPage() {
 
               <div className={styles.modalActions}>
                 <Button disabled={loading || !subjectId} onClick={createTest}>
-                  {loading ? "Генерируем тест..." : "Начать тест"}
+                  {loading ? t("Генерируем тест...", "Тест жасалып жатыр...") : t("Начать тест", "Тестті бастау")}
                 </Button>
                 <Button variant="ghost" onClick={closeAllModals}>
-                  Отмена
+                  {t("Отмена", "Бас тарту")}
                 </Button>
               </div>
             </section>
@@ -647,24 +682,30 @@ export default function TestSetupPage() {
               className={styles.modal}
               role="dialog"
               aria-modal="true"
-              aria-label="Настройки экзамена"
+              aria-label={t("Настройки экзамена", "Емтихан баптаулары")}
               onClick={(event) => event.stopPropagation()}
             >
               <header className={styles.modalHeader}>
-                <h3>{selectedExamType === "ent" ? "ЕНТ" : "IELTS"}</h3>
+                <h3>{selectedExamType === "ent" ? t("ЕНТ", "ҰБТ") : "IELTS"}</h3>
                 <p>
                   {selectedExamType === "ent"
-                    ? "Экзаменационный режим: 120 заданий, 240 минут, библиотека вопросов, 1 предупреждение = автозавершение."
-                    : "Экзаменационный режим: Listening (30), Reading (60), Writing (60), Speaking (11-14). 1 предупреждение = автозавершение."}
+                    ? t(
+                        "Экзаменационный режим: 120 заданий, 240 минут, библиотека вопросов, 1 предупреждение = автозавершение.",
+                        "Емтихан режимі: 120 тапсырма, 240 минут, сұрақтар кітапханасы, 1 ескерту = автоматты аяқтау.",
+                      )
+                    : t(
+                        "Экзаменационный режим: Listening (30), Reading (60), Writing (60), Speaking (11-14). 1 предупреждение = автозавершение.",
+                        "Емтихан режимі: Listening (30), Reading (60), Writing (60), Speaking (11-14). 1 ескерту = автоматты аяқтау.",
+                      )}
                 </p>
               </header>
 
               <div className={styles.modalBlock}>
-                <span className={styles.settingLabel}>Язык</span>
+                <span className={styles.settingLabel}>{t("Язык", "Тіл")}</span>
                 <div className={styles.choiceRow}>
                   {([
-                    { value: "RU", title: "Русский" },
-                    { value: "KZ", title: "Казахский" },
+                    { value: "RU", title: t("Русский", "Орысша") },
+                    { value: "KZ", title: t("Казахский", "Қазақша") },
                   ] as const).map((item) => (
                     <button
                       key={item.value}
@@ -681,7 +722,7 @@ export default function TestSetupPage() {
               {selectedExamType === "ent" && (
                 <>
                   <div className={styles.modalBlock}>
-                    <span className={styles.settingLabel}>Профильный предмет (1 из 5)</span>
+                    <span className={styles.settingLabel}>{t("Профильный предмет (1 из 5)", "Бейіндік пән (5-тен 1)")}</span>
                     <div className={styles.choiceRow}>
                       {entProfileOptions.map((item) => (
                         <button
@@ -690,24 +731,24 @@ export default function TestSetupPage() {
                           className={`${styles.choiceButton} ${entProfileSubjectId === item.subject?.id ? styles.choiceButtonActive : ""}`}
                           onClick={() => setEntProfileSubjectId(item.subject?.id || null)}
                         >
-                          {item.title}
+                          {uiLanguage === "RU" ? item.title_ru : item.title_kz}
                         </button>
                       ))}
                     </div>
                   </div>
 
                   <div className={styles.examInfo}>
-                    <p><b>Структура ЕНТ (120):</b> История Казахстана (20), Математическая грамотность (10), Грамотность чтения (10), 2 профильных блока по 40.</p>
-                    <p><b>Оценивание:</b> максимальный балл 140, пороговый балл 50.</p>
-                    <p><b>Таймер:</b> 240 минут с обратным отсчетом.</p>
+                    <p><b>{t("Структура ЕНТ (120):", "ҰБТ құрылымы (120):")}</b> {t("История Казахстана (20), Математическая грамотность (10), Грамотность чтения (10), 2 профильных блока по 40.", "Қазақстан тарихы (20), Математикалық сауаттылық (10), Оқу сауаттылығы (10), 2 бейіндік блок 40-тан.")}</p>
+                    <p><b>{t("Оценивание:", "Бағалау:")}</b> {t("максимальный балл 140, пороговый балл 50.", "максималды балл 140, шекті балл 50.")}</p>
+                    <p><b>{t("Таймер:", "Таймер:")}</b> {t("240 минут с обратным отсчетом.", "240 минут, кері санау.")}</p>
                   </div>
                 </>
               )}
 
               {selectedExamType === "ielts" && (
                 <div className={styles.examInfo}>
-                  <p><b>Структура IELTS:</b> Listening (30 мин), Reading (60 мин), Writing (60 мин), Speaking (11-14 мин).</p>
-                  <p>Listening/Reading/Writing выполняются подряд, Speaking выделяется отдельно внутри одного теста.</p>
+                  <p><b>{t("Структура IELTS:", "IELTS құрылымы:")}</b> Listening (30 {t("мин", "мин")}), Reading (60 {t("мин", "мин")}), Writing (60 {t("мин", "мин")}), Speaking (11-14 {t("мин", "мин")}).</p>
+                  <p>{t("Listening/Reading/Writing выполняются подряд, Speaking выделяется отдельно внутри одного теста.", "Listening/Reading/Writing қатар орындалады, Speaking бір тест ішінде бөлек бөлім ретінде беріледі.")}</p>
                 </div>
               )}
 
@@ -715,10 +756,10 @@ export default function TestSetupPage() {
 
               <div className={styles.modalActions}>
                 <Button disabled={loading} onClick={createExam}>
-                  {loading ? "Готовим экзамен..." : "Начать экзамен"}
+                  {loading ? t("Готовим экзамен...", "Емтихан дайындалып жатыр...") : t("Начать экзамен", "Емтиханды бастау")}
                 </Button>
                 <Button variant="ghost" onClick={closeAllModals}>
-                  Отмена
+                  {t("Отмена", "Бас тарту")}
                 </Button>
               </div>
             </section>

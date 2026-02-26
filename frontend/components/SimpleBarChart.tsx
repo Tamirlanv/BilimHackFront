@@ -5,9 +5,14 @@ interface Point {
   value: number;
 }
 
-export default function SimpleBarChart({ points }: { points: Point[] }) {
+interface SimpleBarChartProps {
+  points: Point[];
+  emptyLabel?: string;
+}
+
+export default function SimpleBarChart({ points, emptyLabel = "No chart data" }: SimpleBarChartProps) {
   if (points.length === 0) {
-    return <div className={styles.empty}>Недостаточно данных для графика.</div>;
+    return <div className={styles.empty}>{emptyLabel}</div>;
   }
 
   return (

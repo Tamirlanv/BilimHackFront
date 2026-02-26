@@ -1,9 +1,10 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import joinedload
 
+from app.core.config import settings
 from app.core.deps import DBSession, get_current_user
 from app.models import (
     Group,
@@ -65,6 +66,16 @@ def accept_invitation(
         target_group = db.get(Group, invitation.group_id)
         if not target_group:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Группа приглашения больше не существует")
+
+        current_membership = db.scalar(select(GroupMembership).where(GroupMembership.student_id == current_user.id))
+        is_same_group = bool(current_membership and current_membership.group_id == target_group.id)
+        if not is_same_group:
+            members_count = db.scalar(select(func.count(GroupMembership.id)).where(GroupMembership.group_id == target_group.id)) or 0
+            if int(members_count) >= settings.group_max_members:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"В группе уже максимум {settings.group_max_members} участников.",
+                )
 
         db.execute(delete(GroupMembership).where(GroupMembership.student_id == current_user.id))
         db.add(GroupMembership(student_id=current_user.id, group_id=target_group.id))

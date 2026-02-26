@@ -48,6 +48,8 @@ class Settings(BaseSettings):
     elevenlabs_speaker_boost: bool = True
 
     seed_demo_data: bool = True
+    teacher_max_groups: int = 3
+    group_max_members: int = 5
 
     @property
     def cors_origins_list(self) -> list[str]:

@@ -8,7 +8,8 @@ import AuthGuard from "@/components/AuthGuard";
 import Button from "@/components/ui/Button";
 import { getSubjects, getTest, getTestResult } from "@/lib/api";
 import { getToken } from "@/lib/auth";
-import { Question, Subject, Test, TestResult } from "@/lib/types";
+import { tr, useUiLanguage } from "@/lib/i18n";
+import { Language, Question, Subject, Test, TestResult } from "@/lib/types";
 import { assetPaths } from "@/src/assets";
 import styles from "@/app/results/[id]/results.module.css";
 
@@ -16,6 +17,8 @@ export default function ResultPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const testId = Number(params.id);
+  const uiLanguage = useUiLanguage();
+  const t = (ru: string, kz: string) => tr(uiLanguage, ru, kz);
 
   const [data, setData] = useState<TestResult | null>(null);
   const [testMeta, setTestMeta] = useState<Test | null>(null);
@@ -27,7 +30,7 @@ export default function ResultPage() {
     const token = getToken();
     if (!token || Number.isNaN(testId)) {
       setLoading(false);
-      setError("Некорректный ID теста.");
+      setError(t("Некорректный ID теста.", "Тест ID қате."));
       return;
     }
 
@@ -47,7 +50,7 @@ export default function ResultPage() {
       if (resultResponse.status === "fulfilled") {
         setData(resultResponse.value);
       } else {
-        setError(resultResponse.reason instanceof Error ? resultResponse.reason.message : "Не удалось загрузить результат.");
+        setError(resultResponse.reason instanceof Error ? resultResponse.reason.message : t("Не удалось загрузить результат.", "Нәтижені жүктеу мүмкін болмады."));
       }
 
       if (testResponse.status === "fulfilled") {
@@ -65,20 +68,20 @@ export default function ResultPage() {
     return () => {
       cancelled = true;
     };
-  }, [testId]);
+  }, [testId, uiLanguage]);
 
   const resolvedSubjectName = useMemo(() => {
-    if (!testMeta) return "Предмет";
+    if (!testMeta) return t("Предмет", "Пән");
     const subject = subjects.find((item) => item.id === testMeta.subject_id);
-    if (!subject) return `Предмет #${testMeta.subject_id}`;
-    return testMeta.language === "KZ" ? subject.name_kz : subject.name_ru;
-  }, [subjects, testMeta]);
+    if (!subject) return `${t("Предмет", "Пән")} #${testMeta.subject_id}`;
+    return uiLanguage === "KZ" ? subject.name_kz : subject.name_ru;
+  }, [subjects, t, testMeta, uiLanguage]);
 
   const examName = useMemo(() => {
     const kind = testMeta?.exam_kind;
     if (!kind) return null;
-    return kind === "ent" ? "ЕНТ" : "IELTS";
-  }, [testMeta?.exam_kind]);
+    return kind === "ent" ? t("ЕНТ", "ҰБТ") : "IELTS";
+  }, [t, testMeta?.exam_kind]);
 
   const subjectName = examName || resolvedSubjectName;
   const subjectIcon = testMeta?.exam_kind === "ent"
@@ -86,14 +89,14 @@ export default function ResultPage() {
     : testMeta?.exam_kind === "ielts"
       ? assetPaths.icons.ielts
       : resolveSubjectIcon(resolvedSubjectName);
-  const subjectLabel = examName ? "Пройденный экзамен" : "Пройденный предмет";
+  const subjectLabel = examName ? t("Пройденный экзамен", "Өткен емтихан") : t("Пройденный предмет", "Өткен пән");
   const subjectMeta = examName
-    ? `${languageLabel(testMeta?.language)} · Экзамен`
-    : `${difficultyLabel(testMeta?.difficulty)} ${languageLabel(testMeta?.language)}`;
-  const modeMetricLabel = examName ? "Формат:" : "Сложность:";
-  const modeMetricValue = examName || difficultyLabel(testMeta?.difficulty);
+    ? `${languageLabel(testMeta?.language, uiLanguage)} · ${t("Экзамен", "Емтихан")}`
+    : `${difficultyLabel(testMeta?.difficulty, uiLanguage)} ${languageLabel(testMeta?.language, uiLanguage)}`;
+  const modeMetricLabel = examName ? `${t("Формат", "Формат")}:` : `${t("Сложность", "Күрделілік")}:`;
+  const modeMetricValue = examName || difficultyLabel(testMeta?.difficulty, uiLanguage);
   const recommendationText =
-    data?.recommendation.advice_text.trim() || "Рекомендации временно недоступны. Повторите тест или откройте историю попыток.";
+    data?.recommendation.advice_text.trim() || t("Рекомендации временно недоступны. Повторите тест или откройте историю попыток.", "Ұсыныстар уақытша қолжетімсіз. Тестті қайта өтіңіз немесе талпыныстар тарихын ашыңыз.");
   const questionMap = useMemo(() => {
     const map = new Map<number, Question>();
     for (const question of testMeta?.questions || []) {
@@ -107,7 +110,7 @@ export default function ResultPage() {
       <AuthGuard roles={["student"]}>
         <AppShell>
           <div className={styles.page}>
-            <section className={styles.stateCard}>Загружаем результаты...</section>
+            <section className={styles.stateCard}>{t("Загружаем результаты...", "Нәтижелер жүктелуде...")}</section>
           </div>
         </AppShell>
       </AuthGuard>
@@ -120,9 +123,9 @@ export default function ResultPage() {
         <AppShell>
           <div className={styles.page}>
             <section className={styles.stateCard}>
-              <h2 className={styles.stateTitle}>Результат не найден</h2>
-              <p className={styles.stateText}>Проверьте ID теста или откройте историю попыток.</p>
-              <Button onClick={() => router.push("/history")}>Открыть историю</Button>
+              <h2 className={styles.stateTitle}>{t("Результат не найден", "Нәтиже табылмады")}</h2>
+              <p className={styles.stateText}>{t("Проверьте ID теста или откройте историю попыток.", "Тест ID-н тексеріңіз немесе талпыныстар тарихын ашыңыз.")}</p>
+              <Button onClick={() => router.push("/history")}>{t("Открыть историю", "Тарихты ашу")}</Button>
             </section>
           </div>
         </AppShell>
@@ -136,21 +139,21 @@ export default function ResultPage() {
         <div className={styles.page}>
           <section className={styles.section}>
             <header className={styles.sectionHeaderCentered}>
-              <h2 className={styles.sectionTitle}>Итоги теста</h2>
-              <p className={styles.sectionSubtitle}>Результат и персональные рекомендации</p>
+              <h2 className={styles.sectionTitle}>{t("Итоги теста", "Тест қорытындысы")}</h2>
+              <p className={styles.sectionSubtitle}>{t("Результат и персональные рекомендации", "Нәтиже және жеке ұсыныстар")}</p>
             </header>
 
             <div className={styles.summaryGrid}>
               <article className={styles.scoreCard}>
-                <p className={styles.scoreLabel}>Ваш результат</p>
+                <p className={styles.scoreLabel}>{t("Ваш результат", "Сіздің нәтижеңіз")}</p>
                 <p className={styles.scorePercent}>{formatPercent(data.result.percent)}</p>
 
                 <div className={styles.metrics}>
                   <p className={styles.metricRow}>
-                    <span>Баллы:</span> <b>{formatDecimal(data.result.total_score)} / {formatDecimal(data.result.max_score)}</b>
+                    <span>{t("Баллы", "Ұпай")}: </span> <b>{formatDecimal(data.result.total_score, uiLanguage)} / {formatDecimal(data.result.max_score, uiLanguage)}</b>
                   </p>
                   <p className={styles.metricRow}>
-                    <span>Время:</span>{" "}
+                    <span>{t("Время", "Уақыт")}:</span>{" "}
                     <b>
                       {formatDuration(data.result.elapsed_seconds)}
                       {typeof data.result.time_limit_seconds === "number" ? ` / ${formatDuration(data.result.time_limit_seconds)}` : ""}
@@ -160,7 +163,7 @@ export default function ResultPage() {
                     <span>{modeMetricLabel}</span> <b>{modeMetricValue}</b>
                   </p>
                   <p className={styles.metricRow}>
-                    <span>Предупреждений:</span> <b>{data.result.warning_count}</b>
+                    <span>{t("Предупреждений", "Ескертулер")}:</span> <b>{data.result.warning_count}</b>
                   </p>
                 </div>
 
@@ -177,8 +180,8 @@ export default function ResultPage() {
               </article>
 
               <article className={styles.recommendationCard}>
-                <h3 className={styles.recommendationTitle}>Рекомендации</h3>
-                <p className={styles.recommendationSubtitle}>Что повторить и какие задания выполнить дальше.</p>
+                <h3 className={styles.recommendationTitle}>{t("Рекомендации", "Ұсыныстар")}</h3>
+                <p className={styles.recommendationSubtitle}>{t("Что повторить и какие задания выполнить дальше.", "Нені қайталау және қандай тапсырмаларды орындау керек.")}</p>
                 <p className={styles.recommendationText}>{recommendationText}</p>
                 {data.recommendation.generated_tasks.length > 0 ? (
                   <div className={styles.taskList}>
@@ -194,10 +197,10 @@ export default function ResultPage() {
 
             <div className={styles.actionsRow}>
               <Button className={styles.homeButton} onClick={() => router.push("/dashboard")}>
-                На главную
+                {t("На главную", "Басты бетке")}
               </Button>
               <button className={styles.retryButton} type="button" onClick={() => router.push("/test")}>
-                Пройти заново
+                {t("Пройти заново", "Қайта өту")}
               </button>
             </div>
 
@@ -206,26 +209,26 @@ export default function ResultPage() {
 
           <section className={styles.section}>
             <header className={styles.sectionHeader}>
-              <h2 className={styles.sectionTitleLeft}>Ошибки и объяснения</h2>
+                  <h2 className={styles.sectionTitleLeft}>{t("Ошибки и объяснения", "Қателер мен түсіндірмелер")}</h2>
             </header>
 
             {data.feedback.length === 0 ? (
-              <section className={styles.stateCard}>По этому тесту пока нет данных обратной связи.</section>
+              <section className={styles.stateCard}>{t("По этому тесту пока нет данных обратной связи.", "Бұл тест бойынша кері байланыс деректері әлі жоқ.")}</section>
             ) : (
               <div className={styles.feedbackGrid}>
                 {data.feedback.map((item, index) => (
                   <article className={styles.feedbackCard} key={`${item.question_id}-${index}`}>
-                    <p className={styles.fieldLabel}>Вопрос</p>
+                    <p className={styles.fieldLabel}>{t("Вопрос", "Сұрақ")}</p>
                     <p className={`${styles.questionNumber} ${item.is_correct ? styles.questionCorrect : styles.questionWrong}`}>
                       {index + 1}
                     </p>
                     <p className={styles.questionText}>{sanitizeQuestionPrompt(item.prompt)}</p>
 
-                    <p className={styles.fieldLabel}>Ответ</p>
-                    <p className={styles.answerText}>{formatStudentAnswer(item.student_answer, questionMap.get(item.question_id))}</p>
+                    <p className={styles.fieldLabel}>{t("Ответ", "Жауап")}</p>
+                    <p className={styles.answerText}>{formatStudentAnswer(item.student_answer, questionMap.get(item.question_id), uiLanguage)}</p>
 
-                    <p className={styles.fieldLabel}>Балл</p>
-                    <p className={styles.scoreText}>{formatDecimal(item.score)}</p>
+                    <p className={styles.fieldLabel}>{t("Балл", "Ұпай")}</p>
+                    <p className={styles.scoreText}>{formatDecimal(item.score, uiLanguage)}</p>
                   </article>
                 ))}
               </div>
@@ -261,14 +264,14 @@ function resolveSubjectIcon(subjectName: string): string {
   return assetPaths.icons.soon;
 }
 
-function difficultyLabel(value?: Test["difficulty"]): string {
-  if (value === "easy") return "Легкий";
-  if (value === "hard") return "Сложный";
-  return "Средний";
+function difficultyLabel(value: Test["difficulty"] | undefined, language: Language): string {
+  if (value === "easy") return tr(language, "Легкий", "Жеңіл");
+  if (value === "hard") return tr(language, "Сложный", "Күрделі");
+  return tr(language, "Средний", "Орташа");
 }
 
-function languageLabel(value?: Test["language"]): string {
-  return value === "KZ" ? "Каз" : "Рус";
+function languageLabel(value: Test["language"] | undefined, language: Language): string {
+  return value === "KZ" ? tr(language, "Каз", "Қаз") : tr(language, "Рус", "Орыс");
 }
 
 function formatDuration(totalSeconds: number): string {
@@ -288,16 +291,16 @@ function formatPercent(value: number): string {
   return `${rounded.toFixed(1)}%`;
 }
 
-function formatDecimal(value: number): string {
+function formatDecimal(value: number, language: Language): string {
   const normalized = Number.isFinite(value) ? value : 0;
-  return new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(normalized);
+  return new Intl.NumberFormat(language === "KZ" ? "kk-KZ" : "ru-RU", { maximumFractionDigits: 2 }).format(normalized);
 }
 
 function sanitizeQuestionPrompt(prompt: string): string {
   return prompt.replace(/\s*\((вариант|нұсқа)\s*\d+\)\s*$/i, "").trim();
 }
 
-function formatStudentAnswer(answer: Record<string, unknown>, question?: Question): string {
+function formatStudentAnswer(answer: Record<string, unknown>, question: Question | undefined, language: Language): string {
   const rawText = [answer.text, answer.spoken_answer_text, answer.transcript].find((value) => typeof value === "string");
   if (typeof rawText === "string" && rawText.trim()) {
     return rawText.trim();
@@ -332,5 +335,5 @@ function formatStudentAnswer(answer: Record<string, unknown>, question?: Questio
     if (pairs.length > 0) return pairs.join("; ");
   }
 
-  return "Ответ не указан";
+  return tr(language, "Ответ не указан", "Жауап көрсетілмеген");
 }

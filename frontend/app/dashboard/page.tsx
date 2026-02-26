@@ -8,6 +8,7 @@ import AuthGuard from "@/components/AuthGuard";
 import Button from "@/components/ui/Button";
 import { generateMistakesTest, getHistory, getProgress } from "@/lib/api";
 import { getToken } from "@/lib/auth";
+import { tr, uiLocale, useUiLanguage } from "@/lib/i18n";
 import { HistoryItem, StudentProgress } from "@/lib/types";
 import { assetPaths } from "@/src/assets";
 import styles from "@/app/dashboard/dashboard.module.css";
@@ -25,6 +26,8 @@ interface RecommendationCard {
 
 export default function DashboardPage() {
   const router = useRouter();
+  const uiLanguage = useUiLanguage();
+  const t = (ru: string, kz: string) => tr(uiLanguage, ru, kz);
 
   const [progress, setProgress] = useState<StudentProgress | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
@@ -41,7 +44,7 @@ export default function DashboardPage() {
         setProgress(progressData);
         setHistory(historyData);
       })
-      .catch((err) => setError(err instanceof Error ? err.message : "Не удалось загрузить данные главной страницы"))
+      .catch((err) => setError(err instanceof Error ? err.message : t("Не удалось загрузить данные главной страницы", "Басты бет деректерін жүктеу мүмкін болмады")))
       .finally(() => setLoading(false));
   }, []);
 
@@ -52,43 +55,43 @@ export default function DashboardPage() {
   );
 
   const recommendations = useMemo<RecommendationCard[]>(() => {
-    const weakTopic = progress?.weak_topics[0] || "Слабая тема";
+    const weakTopic = progress?.weak_topics[0] || t("Слабая тема", "Әлсіз тақырып");
     const hasAttempts = history.length > 0;
 
     return [
       {
         id: "review-errors",
-        label: "Приоритет для вас",
-        title: "Работа над ошибками",
-        text: "Короткая практика по вопросам, где вы ошибались в последних попытках.",
-        action: "Начать",
+        label: t("Приоритет для вас", "Сіз үшін басымдық"),
+        title: t("Работа над ошибками", "Қателермен жұмыс"),
+        text: t("Короткая практика по вопросам, где вы ошибались в последних попытках.", "Соңғы әрекеттердегі қателескен сұрақтар бойынша қысқа жаттығу."),
+        action: t("Начать", "Бастау"),
         icon: assetPaths.icons.repeat,
         kind: "mistakes",
       },
       {
         id: "weak-topic",
-        label: "Самая слабая тема",
+        label: t("Самая слабая тема", "Ең әлсіз тақырып"),
         title: weakTopic,
-        text: "Сконцентрируйтесь на самой слабой теме, чтобы поднять общий балл.",
-        action: "Начать",
+        text: t("Сконцентрируйтесь на самой слабой теме, чтобы поднять общий балл.", "Жалпы нәтижені көтеру үшін ең әлсіз тақырыпқа назар аударыңыз."),
+        action: t("Начать", "Бастау"),
         icon: assetPaths.icons.weakTopic,
         kind: "link",
         href: "/test",
       },
       {
         id: "control",
-        label: "Для вас",
-        title: hasAttempts ? "Контрольный тест" : "Первый тест",
+        label: t("Для вас", "Сіз үшін"),
+        title: hasAttempts ? t("Контрольный тест", "Бақылау тесті") : t("Первый тест", "Бірінші тест"),
         text: hasAttempts
-          ? "Проверьте прогресс после повторения и сравните результат с предыдущими тестами."
-          : "Сделайте первую попытку, чтобы система собрала базовый профиль знаний.",
-        action: "Начать",
+          ? t("Проверьте прогресс после повторения и сравните результат с предыдущими тестами.", "Қайталаудан кейін прогресті тексеріп, нәтижені алдыңғы тесттермен салыстырыңыз.")
+          : t("Сделайте первую попытку, чтобы система собрала базовый профиль знаний.", "Жүйе бастапқы білім профилін құруы үшін алғашқы тестті өтіңіз."),
+        action: t("Начать", "Бастау"),
         icon: assetPaths.icons.lesson,
         kind: "link",
         href: "/test",
       },
     ];
-  }, [history.length, progress?.weak_topics]);
+  }, [history.length, progress?.weak_topics, t]);
 
   const openMistakesReview = async () => {
     const token = getToken();
@@ -100,7 +103,7 @@ export default function DashboardPage() {
       const test = await generateMistakesTest(token, { num_questions: 10 });
       router.push(`/test/${test.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось подготовить повторение ошибок");
+      setError(err instanceof Error ? err.message : t("Не удалось подготовить повторение ошибок", "Қателерді қайталау тестін дайындау мүмкін болмады"));
     } finally {
       setLaunchingMistakes(false);
     }
@@ -110,7 +113,7 @@ export default function DashboardPage() {
     return (
       <AuthGuard roles={["student"]}>
         <AppShell>
-          <div className={styles.pageLoading}>Загрузка...</div>
+          <div className={styles.pageLoading}>{t("Загрузка...", "Жүктелуде...")}</div>
         </AppShell>
       </AuthGuard>
     );
@@ -122,28 +125,28 @@ export default function DashboardPage() {
         <div className={styles.page}>
           <section className={`${styles.section} ${styles.primarySection}`}>
             <div className={styles.sectionHeaderCentered}>
-              <h2 className={styles.sectionTitle}>Главная</h2>
-              <p className={styles.sectionSubtitle}>Краткий пересказ вашего текущего прогресса</p>
+              <h2 className={styles.sectionTitle}>{t("Главная", "Басты бет")}</h2>
+              <p className={styles.sectionSubtitle}>{t("Краткий пересказ вашего текущего прогресса", "Ағымдағы прогрестің қысқаша көрінісі")}</p>
             </div>
 
             <div className={styles.statsRow}>
               <article className={styles.statItem}>
-                <h3 className={styles.statLabel}>Средняя успеваемость</h3>
-                <p className={styles.statMeta}>По всем попыткам</p>
+                <h3 className={styles.statLabel}>{t("Средняя успеваемость", "Орташа үлгерім")}</h3>
+                <p className={styles.statMeta}>{t("По всем попыткам", "Барлық талпыныс бойынша")}</p>
                 <p className={styles.statValue}>{progress?.avg_percent ?? 0}%</p>
               </article>
 
               <article className={styles.statItem}>
-                <h3 className={styles.statLabel}>Лучший результат</h3>
+                <h3 className={styles.statLabel}>{t("Лучший результат", "Ең үздік нәтиже")}</h3>
                 <p className={styles.statMeta}>
-                  {bestAttempt ? `${attemptTitle(bestAttempt)} (${difficultyLabel(bestAttempt.difficulty)})` : "Пока нет данных"}
+                  {bestAttempt ? `${attemptTitle(bestAttempt)} (${difficultyLabel(bestAttempt.difficulty, uiLanguage)})` : t("Пока нет данных", "Әзірге дерек жоқ")}
                 </p>
                 <p className={styles.statValue}>{progress?.best_percent ?? 0}%</p>
               </article>
 
               <article className={styles.statItem}>
-                <h3 className={styles.statLabel}>Всего тестов</h3>
-                <p className={styles.statMeta}>За все время</p>
+                <h3 className={styles.statLabel}>{t("Всего тестов", "Барлық тест саны")}</h3>
+                <p className={styles.statMeta}>{t("За все время", "Барлық уақыт ішінде")}</p>
                 <p className={styles.statValue}>{progress?.total_tests ?? 0}</p>
               </article>
             </div>
@@ -151,16 +154,16 @@ export default function DashboardPage() {
 
           <section className={styles.section}>
             <div className={styles.sectionHeaderCentered}>
-              <h2 className={styles.sectionTitle}>Недавно вы проходили...</h2>
-              <p className={styles.sectionSubtitle}>Последние попытки и текущий уровень результатов</p>
+              <h2 className={styles.sectionTitle}>{t("Недавно вы проходили...", "Жақында өткендеріңіз...")}</h2>
+              <p className={styles.sectionSubtitle}>{t("Последние попытки и текущий уровень результатов", "Соңғы талпыныстар және ағымдағы нәтиже деңгейі")}</p>
             </div>
 
             {error && <div className="errorText">{error}</div>}
 
             {recentAttempts.length === 0 ? (
               <div className={styles.emptyState}>
-                <p className={styles.emptyText}>У вас пока нет завершенных тестов.</p>
-                <Button onClick={() => router.push("/test")}>Пройти первый тест</Button>
+                <p className={styles.emptyText}>{t("У вас пока нет завершенных тестов.", "Сізде әлі аяқталған тесттер жоқ.")}</p>
+                <Button onClick={() => router.push("/test")}>{t("Пройти первый тест", "Бірінші тестті өту")}</Button>
               </div>
             ) : (
               <>
@@ -171,7 +174,7 @@ export default function DashboardPage() {
 
                     return (
                       <article className={styles.recentCard} key={item.test_id}>
-                        <p className={styles.cardDate}>{formatRelativeDate(item.created_at)}</p>
+                        <p className={styles.cardDate}>{formatRelativeDate(item.created_at, uiLanguage)}</p>
 
                         <div className={styles.cardTop}>
                           <img
@@ -182,8 +185,8 @@ export default function DashboardPage() {
                           <div className={styles.cardInfo}>
                             <h3 className={styles.cardTitle}>{title}</h3>
                             <p className={styles.cardMeta}>
-                              {difficultyLabel(item.difficulty)}&nbsp;&nbsp;
-                              {languageLabel(item.language)}&nbsp;&nbsp;
+                              {difficultyLabel(item.difficulty, uiLanguage)}&nbsp;&nbsp;
+                              {languageLabel(item.language, uiLanguage)}&nbsp;&nbsp;
                               #{item.test_id}
                             </p>
                           </div>
@@ -191,13 +194,13 @@ export default function DashboardPage() {
                         </div>
 
                         <div className={styles.cardActions}>
-                          <Button onClick={() => router.push("/test")}>Повторить</Button>
+                          <Button onClick={() => router.push("/test")}>{t("Повторить", "Қайталау")}</Button>
                           <button
                             type="button"
                             className={styles.linkButton}
                             onClick={() => router.push(`/results/${item.test_id}`)}
                           >
-                            Результаты
+                            {t("Результаты", "Нәтижелер")}
                           </button>
                         </div>
                       </article>
@@ -206,7 +209,7 @@ export default function DashboardPage() {
                 </div>
 
                 <button type="button" className={styles.showAllButton} onClick={() => router.push("/history")}>
-                  Показать все
+                  {t("Показать все", "Барлығын көрсету")}
                 </button>
               </>
             )}
@@ -214,8 +217,8 @@ export default function DashboardPage() {
 
           <section className={styles.section}>
             <div className={styles.sectionHeaderCentered}>
-              <h2 className={styles.sectionTitle}>Рекомендуем</h2>
-              <p className={styles.sectionSubtitle}>Основаны на ваших тестах и результатах</p>
+              <h2 className={styles.sectionTitle}>{t("Рекомендуем", "Ұсынамыз")}</h2>
+              <p className={styles.sectionSubtitle}>{t("Основаны на ваших тестах и результатах", "Сіздің тесттеріңіз бен нәтижелеріңіз негізінде")}</p>
             </div>
 
             <div className={styles.cardGrid}>
@@ -231,7 +234,7 @@ export default function DashboardPage() {
                   </div>
                   {item.kind === "mistakes" ? (
                     <Button disabled={launchingMistakes} block onClick={openMistakesReview}>
-                      {launchingMistakes ? "Подготавливаем..." : item.action}
+                      {launchingMistakes ? t("Подготавливаем...", "Дайындалып жатыр...") : item.action}
                     </Button>
                   ) : (
                     <Button block onClick={() => router.push(item.href || "/test")}>
@@ -274,10 +277,10 @@ function resolveSubjectIcon(subjectName: string): string {
   return assetPaths.icons.soon;
 }
 
-function difficultyLabel(value: HistoryItem["difficulty"]): string {
-  if (value === "easy") return "Легкий";
-  if (value === "hard") return "Сложный";
-  return "Средний";
+function difficultyLabel(value: HistoryItem["difficulty"], language: "RU" | "KZ"): string {
+  if (value === "easy") return tr(language, "Легкий", "Жеңіл");
+  if (value === "hard") return tr(language, "Сложный", "Күрделі");
+  return tr(language, "Средний", "Орташа");
 }
 
 function attemptTitle(item: Pick<HistoryItem, "subject_name" | "exam_kind">): string {
@@ -286,13 +289,16 @@ function attemptTitle(item: Pick<HistoryItem, "subject_name" | "exam_kind">): st
   return item.subject_name;
 }
 
-function languageLabel(value: HistoryItem["language"]): string {
-  return value === "KZ" ? "Каз" : "Рус";
+function languageLabel(value: HistoryItem["language"], language: "RU" | "KZ"): string {
+  if (value === "KZ") {
+    return tr(language, "Каз", "Қаз");
+  }
+  return tr(language, "Рус", "Орыс");
 }
 
-function formatRelativeDate(value: string): string {
+function formatRelativeDate(value: string, language: "RU" | "KZ"): string {
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Недавно";
+  if (Number.isNaN(date.getTime())) return tr(language, "Недавно", "Жақында");
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -300,9 +306,9 @@ function formatRelativeDate(value: string): string {
   target.setHours(0, 0, 0, 0);
   const diffDays = Math.round((today.getTime() - target.getTime()) / 86_400_000);
 
-  if (diffDays === 0) return "Сегодня";
-  if (diffDays === 1) return "Вчера";
-  return date.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" });
+  if (diffDays === 0) return tr(language, "Сегодня", "Бүгін");
+  if (diffDays === 1) return tr(language, "Вчера", "Кеше");
+  return date.toLocaleDateString(uiLocale(language), { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
 function resolveScoreClass(percent: number): "scoreSuccess" | "scoreWarning" | "scoreDanger" {

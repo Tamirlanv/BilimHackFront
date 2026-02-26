@@ -22,11 +22,11 @@ import Button from "@/components/ui/Button";
 import SidebarItem from "@/components/ui/SidebarItem";
 import { clearSession, getUser } from "@/lib/auth";
 import { Language } from "@/lib/types";
+import { tr, UI_LANG_STORAGE_KEY, setUiLanguage as setLanguagePreference, useUiLanguage } from "@/lib/i18n";
 import { assetPaths } from "@/src/assets";
 import styles from "@/components/layout/DashboardLayout.module.css";
 
 const SIDEBAR_STORAGE_KEY = "oku_sidebar_collapsed";
-const UI_LANG_STORAGE_KEY = "oku_ui_lang";
 
 interface DashboardLayoutProps {
   children: ReactNode;
@@ -38,19 +38,19 @@ interface NavItem {
   icon: ReactNode;
 }
 
-function getPageTitle(pathname: string, role?: string) {
-  if (pathname.startsWith("/dashboard")) return "Главная";
-  if (pathname.startsWith("/test")) return "Тесты";
-  if (pathname.startsWith("/blitz")) return "Блиц";
-  if (pathname.startsWith("/results")) return "Результаты";
-  if (pathname.startsWith("/history")) return "История";
-  if (pathname.startsWith("/progress")) return "Аналитика";
-  if (pathname.startsWith("/teacher/create-group")) return "Создать группу";
-  if (pathname.startsWith("/teacher/groups")) return "Группа";
-  if (pathname.startsWith("/teacher/students")) return "Аналитика студента";
-  if (pathname === "/teacher") return "Группы";
-  if (pathname.startsWith("/profile")) return "Профиль";
-  return role === "teacher" ? "Группы" : "OKU";
+function getPageTitle(pathname: string, role: string | undefined, language: Language) {
+  if (pathname.startsWith("/dashboard")) return tr(language, "Главная", "Басты бет");
+  if (pathname.startsWith("/test")) return tr(language, "Тесты", "Тесттер");
+  if (pathname.startsWith("/blitz")) return tr(language, "Блиц", "Блиц");
+  if (pathname.startsWith("/results")) return tr(language, "Результаты", "Нәтижелер");
+  if (pathname.startsWith("/history")) return tr(language, "История", "Тарих");
+  if (pathname.startsWith("/progress")) return tr(language, "Аналитика", "Аналитика");
+  if (pathname.startsWith("/teacher/create-group")) return tr(language, "Создать группу", "Топ құру");
+  if (pathname.startsWith("/teacher/groups")) return tr(language, "Группа", "Топ");
+  if (pathname.startsWith("/teacher/students")) return tr(language, "Аналитика студента", "Оқушы аналитикасы");
+  if (pathname === "/teacher") return tr(language, "Группы", "Топтар");
+  if (pathname.startsWith("/profile")) return tr(language, "Профиль", "Профиль");
+  return role === "teacher" ? tr(language, "Группы", "Топтар") : "OKU";
 }
 
 export default function DashboardLayout({ children }: DashboardLayoutProps) {
@@ -60,7 +60,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [uiLanguage, setUiLanguage] = useState<Language>("RU");
+  const uiLanguage = useUiLanguage();
 
   useEffect(() => {
     const saved = localStorage.getItem(SIDEBAR_STORAGE_KEY);
@@ -70,30 +70,27 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
     const savedLang = localStorage.getItem(UI_LANG_STORAGE_KEY);
     if (savedLang === "RU" || savedLang === "KZ") {
-      setUiLanguage(savedLang);
+      setLanguagePreference(savedLang);
     }
   }, []);
 
   useEffect(() => {
-    document.documentElement.dataset.uiLanguage = uiLanguage;
-    localStorage.setItem(UI_LANG_STORAGE_KEY, uiLanguage);
-  }, [uiLanguage]);
-
-  useEffect(() => {
     setMobileOpen(false);
   }, [pathname]);
+
+  const t = (ru: string, kz: string) => tr(uiLanguage, ru, kz);
 
   const navItems: NavItem[] = useMemo(() => {
     if (user?.role === "teacher") {
       return [
         {
           href: "/teacher",
-          label: "Группы",
+          label: t("Группы", "Топтар"),
           icon: <Users size={18} />,
         },
         {
           href: "/teacher/create-group",
-          label: "Создать группу",
+          label: t("Создать группу", "Топ құру"),
           icon: <FolderPlus size={18} />,
         },
       ];
@@ -102,31 +99,31 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     return [
       {
         href: "/dashboard",
-        label: "Главная",
+        label: t("Главная", "Басты бет"),
         icon: <LayoutGrid size={18} />,
       },
       {
         href: "/test",
-        label: "Тест",
+        label: t("Тест", "Тест"),
         icon: <BookOpenCheck size={18} />,
       },
       {
         href: "/blitz",
-        label: "Блиц",
+        label: t("Блиц", "Блиц"),
         icon: <Bolt size={18} />,
       },
       {
         href: "/history",
-        label: "История",
+        label: t("История", "Тарих"),
         icon: <Clock3 size={18} />,
       },
       {
         href: "/progress",
-        label: "Аналитика",
+        label: t("Аналитика", "Аналитика"),
         icon: <ChartSpline size={18} />,
       },
     ];
-  }, [user?.role]);
+  }, [t, user?.role]);
 
   const isActive = (href: string) => {
     if (href === "/teacher") {
@@ -144,8 +141,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     return pathname === href || pathname.startsWith(`${href}/`);
   };
 
-  const pageTitle = getPageTitle(pathname, user?.role);
-  const pageSubtitle = user?.role === "teacher" ? "Панель преподавателя" : "Панель студента";
+  const pageTitle = getPageTitle(pathname, user?.role, uiLanguage);
+  const pageSubtitle = user?.role === "teacher" ? t("Панель преподавателя", "Оқытушы панелі") : t("Панель студента", "Оқушы панелі");
   const userInitial = (user?.username?.charAt(0) || "U").toUpperCase();
 
   const logout = () => {
@@ -164,14 +161,14 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       <button
         className={`${styles.langBtn} ${uiLanguage === "RU" ? styles.langActive : ""}`}
         type="button"
-        onClick={() => setUiLanguage("RU")}
+        onClick={() => setLanguagePreference("RU")}
       >
         RU
       </button>
       <button
         className={`${styles.langBtn} ${uiLanguage === "KZ" ? styles.langActive : ""}`}
         type="button"
-        onClick={() => setUiLanguage("KZ")}
+        onClick={() => setLanguagePreference("KZ")}
       >
         KZ
       </button>
@@ -193,11 +190,11 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
         <div className={styles.collapseRow}>
           {isMobileVariant ? (
-            <Button variant="ghost" onClick={() => setMobileOpen(false)} aria-label="Закрыть меню">
+            <Button variant="ghost" onClick={() => setMobileOpen(false)} aria-label={t("Закрыть меню", "Мәзірді жабу")}>
               <PanelLeftClose size={16} />
             </Button>
           ) : (
-            <Button variant="ghost" onClick={toggleCollapsed} aria-label={collapsed ? "Раскрыть меню" : "Свернуть меню"}>
+            <Button variant="ghost" onClick={toggleCollapsed} aria-label={collapsed ? t("Раскрыть меню", "Мәзірді кеңейту") : t("Свернуть меню", "Мәзірді жинау")}>
               {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
             </Button>
           )}
@@ -226,29 +223,29 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             <>
               {renderLanguageSwitch()}
               <div className={styles.mobileToolRow}>
-                <Button className={styles.mobileToolButton} variant="ghost" aria-label="Уведомления">
+                <Button className={styles.mobileToolButton} variant="ghost" aria-label={t("Уведомления", "Хабарламалар")}>
                   <Bell size={16} />
-                  <span>Уведомления</span>
+                  <span>{t("Уведомления", "Хабарламалар")}</span>
                 </Button>
-                <Button className={styles.mobileToolButton} variant="ghost" aria-label="Тема">
+                <Button className={styles.mobileToolButton} variant="ghost" aria-label={t("Тема", "Тақырып")}>
                   <Moon size={16} />
-                  <span>Тема</span>
+                  <span>{t("Тема", "Тақырып")}</span>
                 </Button>
               </div>
               <button type="button" className={`${styles.mobileProfile} ${styles.profileButton}`} onClick={() => router.push("/profile")}>
                 <span className={styles.avatar}>{userInitial}</span>
                 <div className={styles.mobileProfileMeta}>
                   <span className={styles.userName}>{user?.username ?? "user"}</span>
-                  <span className={styles.userRole}>{user?.role === "teacher" ? "Учитель" : "Студент"}</span>
+                  <span className={styles.userRole}>{user?.role === "teacher" ? t("Учитель", "Оқытушы") : t("Студент", "Оқушы")}</span>
                 </div>
               </button>
               <Button block variant="ghost" onClick={logout}>
-                <LogOut size={16} /> Выход
+                <LogOut size={16} /> {t("Выход", "Шығу")}
               </Button>
             </>
           ) : (
             <Button block variant="ghost" onClick={logout}>
-              <LogOut size={16} /> {!collapsed ? "Выход" : ""}
+              <LogOut size={16} /> {!collapsed ? t("Выход", "Шығу") : ""}
             </Button>
           )}
         </div>
@@ -266,7 +263,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       <div className={styles.main}>
         <header className={styles.topbar}>
           <div className={styles.topbarLeft}>
-            <Button className={styles.mobileMenuButton} variant="ghost" onClick={() => setMobileOpen(true)} aria-label="Открыть меню">
+            <Button className={styles.mobileMenuButton} variant="ghost" onClick={() => setMobileOpen(true)} aria-label={t("Открыть меню", "Мәзірді ашу")}>
               <Menu size={18} />
             </Button>
             <div className={styles.topbarTitle}>
@@ -278,10 +275,10 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           <div className={styles.topbarRight}>
             {renderLanguageSwitch()}
 
-            <Button className={styles.iconButton} variant="ghost" aria-label="Уведомления">
+            <Button className={styles.iconButton} variant="ghost" aria-label={t("Уведомления", "Хабарламалар")}>
               <Bell size={16} />
             </Button>
-            <Button className={styles.iconButton} variant="ghost" aria-label="Тема">
+            <Button className={styles.iconButton} variant="ghost" aria-label={t("Тема", "Тақырып")}>
               <Moon size={16} />
             </Button>
 
@@ -289,11 +286,11 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
               <span className={styles.avatar}>{userInitial}</span>
               <div className={styles.profileMeta}>
                 <span className={styles.userName}>{user?.username ?? "user"}</span>
-                <span className={styles.userRole}>{user?.role === "teacher" ? "Учитель" : "Студент"}</span>
+                <span className={styles.userRole}>{user?.role === "teacher" ? t("Учитель", "Оқытушы") : t("Студент", "Оқушы")}</span>
               </div>
             </button>
 
-            <Button className={styles.iconButton} variant="ghost" onClick={logout} aria-label="Выйти">
+            <Button className={styles.iconButton} variant="ghost" onClick={logout} aria-label={t("Выйти", "Шығу")}>
               <LogOut size={16} />
             </Button>
           </div>

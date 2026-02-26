@@ -9,6 +9,7 @@ import AuthGuard from "@/components/AuthGuard";
 import Button from "@/components/ui/Button";
 import { getTeacherGroupMembers, getTeacherGroups } from "@/lib/api";
 import { getToken } from "@/lib/auth";
+import { tr, useUiLanguage } from "@/lib/i18n";
 import { TeacherGroup } from "@/lib/types";
 import styles from "@/app/teacher/teacher.module.css";
 
@@ -31,6 +32,8 @@ function buildStudentAnalyticsHref(studentId: number, studentName?: string) {
 
 export default function TeacherGroupsPage() {
   const router = useRouter();
+  const uiLanguage = useUiLanguage();
+  const t = (ru: string, kz: string) => tr(uiLanguage, ru, kz);
   const [groups, setGroups] = useState<TeacherGroup[]>([]);
   const [attention, setAttention] = useState<AttentionItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -70,12 +73,12 @@ export default function TeacherGroupsPage() {
           }
         }
         items.sort((left, right) => right.warnings_count - left.warnings_count);
-        setAttention(items.slice(0, 3));
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Не удалось загрузить группы");
-        }
-      } finally {
+          setAttention(items.slice(0, 3));
+        } catch (err) {
+          if (!cancelled) {
+            setError(err instanceof Error ? err.message : t("Не удалось загрузить группы", "Топтарды жүктеу мүмкін болмады"));
+          }
+        } finally {
         if (!cancelled) {
           setLoading(false);
         }
@@ -85,7 +88,7 @@ export default function TeacherGroupsPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [uiLanguage]);
 
   return (
     <AuthGuard roles={["teacher"]}>
@@ -93,12 +96,12 @@ export default function TeacherGroupsPage() {
         <div className={styles.page}>
           <section className={styles.section}>
             <header className={styles.sectionHeader}>
-              <h2 className={styles.title}>Группы</h2>
-              <p className={styles.subtitle}>Группы с вашими учениками</p>
+              <h2 className={styles.title}>{t("Группы", "Топтар")}</h2>
+              <p className={styles.subtitle}>{t("Группы с вашими учениками", "Оқушыларыңыз бар топтар")}</p>
             </header>
 
             {loading ? (
-              <p className="muted">Загрузка...</p>
+              <p className="muted">{t("Загрузка...", "Жүктелуде...")}</p>
             ) : (
               <div className={styles.groupsGrid}>
                 {groups.map((group) => (
@@ -106,7 +109,7 @@ export default function TeacherGroupsPage() {
                     <UsersRound size={48} className={styles.groupIcon} />
                     <div className={styles.groupBody}>
                       <h3>{group.name}</h3>
-                      <p>{group.members_count} человек</p>
+                      <p>{group.members_count} {t("человек", "адам")}</p>
                     </div>
                   </button>
                 ))}
@@ -115,16 +118,16 @@ export default function TeacherGroupsPage() {
 
             {!loading && groups.length === 0 && (
               <div className={styles.emptyState}>
-                <p>У вас пока нет групп.</p>
-                <Button onClick={() => router.push("/teacher/create-group")}>Создать первую группу</Button>
+                <p>{t("У вас пока нет групп.", "Сізде әлі топтар жоқ.")}</p>
+                <Button onClick={() => router.push("/teacher/create-group")}>{t("Создать первую группу", "Алғашқы топты құру")}</Button>
               </div>
             )}
           </section>
 
           <section className={styles.section}>
             <header className={styles.sectionHeader}>
-              <h2 className={styles.title}>Требует внимания</h2>
-              <p className={styles.subtitle}>Основаны на тестах и результатах учеников</p>
+              <h2 className={styles.title}>{t("Требует внимания", "Назар аударуды қажет етеді")}</h2>
+              <p className={styles.subtitle}>{t("Основаны на тестах и результатах учеников", "Оқушылардың тесттері мен нәтижелері негізінде")}</p>
             </header>
 
             {error && <div className="errorText">{error}</div>}
@@ -132,7 +135,7 @@ export default function TeacherGroupsPage() {
             <div className={styles.attentionGrid}>
               {attention.map((item) => (
                 <article className={styles.attentionCard} key={item.student_id}>
-                  <p className={styles.warning}>+{item.warnings_count} предупреждений</p>
+                  <p className={styles.warning}>+{item.warnings_count} {t("предупреждений", "ескерту")}</p>
                   <div className={styles.studentRow}>
                     <UsersRound size={42} className={styles.groupIcon} />
                     <div>
@@ -141,14 +144,14 @@ export default function TeacherGroupsPage() {
                     </div>
                   </div>
                   <Button block onClick={() => router.push(buildStudentAnalyticsHref(item.student_id, item.student_name))}>
-                    Открыть
+                    {t("Открыть", "Ашу")}
                   </Button>
                 </article>
               ))}
             </div>
 
             {attention.length === 0 && !loading && (
-              <p className="muted">Пока нет учеников с предупреждениями.</p>
+              <p className="muted">{t("Пока нет учеников с предупреждениями.", "Ескертулері бар оқушылар әзірге жоқ.")}</p>
             )}
           </section>
 

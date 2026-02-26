@@ -16,6 +16,7 @@ import {
   buildBlitzResultPayload,
   createBlitzQuestionSet,
 } from "@/lib/blitz";
+import { getUiLanguage, tr, useUiLanguage } from "@/lib/i18n";
 import { assetPaths } from "@/src/assets";
 import styles from "@/app/blitz/blitz.module.css";
 
@@ -26,8 +27,10 @@ const SWIPE_THRESHOLD_PX = 90;
 
 export default function BlitzPage() {
   const router = useRouter();
+  const uiLanguage = useUiLanguage();
+  const t = (ru: string, kz: string) => tr(uiLanguage, ru, kz);
 
-  const [questions] = useState<BlitzQuestion[]>(() => createBlitzQuestionSet(BLITZ_SESSION_SIZE));
+  const [questions] = useState<BlitzQuestion[]>(() => createBlitzQuestionSet(BLITZ_SESSION_SIZE, getUiLanguage()));
   const [answers, setAnswers] = useState<BlitzAnswerRecord[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
   const [secondsLeft, setSecondsLeft] = useState(BLITZ_QUESTION_TIME_LIMIT_SECONDS);
@@ -59,11 +62,32 @@ export default function BlitzPage() {
     }
   }, []);
 
+  useEffect(() => {
+    if (!isStarted) return;
+
+    const prevBodyOverflow = document.body.style.overflow;
+    const prevBodyOverscroll = document.body.style.overscrollBehaviorY;
+    const prevHtmlOverflow = document.documentElement.style.overflow;
+    const prevHtmlOverscroll = document.documentElement.style.overscrollBehaviorY;
+
+    document.body.style.overflow = "hidden";
+    document.body.style.overscrollBehaviorY = "none";
+    document.documentElement.style.overflow = "hidden";
+    document.documentElement.style.overscrollBehaviorY = "none";
+
+    return () => {
+      document.body.style.overflow = prevBodyOverflow;
+      document.body.style.overscrollBehaviorY = prevBodyOverscroll;
+      document.documentElement.style.overflow = prevHtmlOverflow;
+      document.documentElement.style.overscrollBehaviorY = prevHtmlOverscroll;
+    };
+  }, [isStarted]);
+
   const finishBlitz = useCallback(
     (nextAnswers: BlitzAnswerRecord[]) => {
       const startedAt = sessionStartedAt ?? Date.now();
       const totalElapsedSeconds = Math.max(1, Math.round((Date.now() - startedAt) / 1000));
-      const payload = buildBlitzResultPayload(nextAnswers, totalElapsedSeconds);
+      const payload = buildBlitzResultPayload(nextAnswers, totalElapsedSeconds, uiLanguage);
       try {
         sessionStorage.setItem(BLITZ_LAST_RESULT_KEY, JSON.stringify(payload));
         appendBlitzResultToHistory(payload);
@@ -72,7 +96,7 @@ export default function BlitzPage() {
       }
       router.push("/blitz/result");
     },
-    [router, sessionStartedAt],
+    [router, sessionStartedAt, uiLanguage],
   );
 
   const submitAnswer = useCallback(
@@ -186,7 +210,7 @@ export default function BlitzPage() {
     .filter(Boolean)
     .join(" ");
 
-  const decisionLabel = dragX > 28 ? "ДА" : dragX < -28 ? "НЕТ" : "";
+  const decisionLabel = dragX > 28 ? t("ДА", "ИӘ") : dragX < -28 ? t("НЕТ", "ЖОҚ") : "";
   const decisionClass = dragX > 28 ? styles.decisionYes : dragX < -28 ? styles.decisionNo : "";
 
   if (!question) {
@@ -195,9 +219,9 @@ export default function BlitzPage() {
         <AppShell>
           <div className={styles.page}>
             <section className={styles.stateCard}>
-              <h2 className={styles.stateTitle}>Не удалось запустить блиц</h2>
-              <p className={styles.stateText}>Список вопросов пуст. Перезапустите страницу и попробуйте снова.</p>
-              <Button onClick={() => router.push("/dashboard")}>На главную</Button>
+              <h2 className={styles.stateTitle}>{t("Не удалось запустить блиц", "Блицті іске қосу мүмкін болмады")}</h2>
+              <p className={styles.stateText}>{t("Список вопросов пуст. Перезапустите страницу и попробуйте снова.", "Сұрақтар тізімі бос. Бетті қайта жүктеп, тағы көріңіз.")}</p>
+              <Button onClick={() => router.push("/dashboard")}>{t("На главную", "Басты бетке")}</Button>
             </section>
           </div>
         </AppShell>
@@ -212,12 +236,12 @@ export default function BlitzPage() {
           {!isStarted ? (
             <section className={styles.startWrap}>
               <article className={styles.startCard}>
-                <h2 className={styles.startTitle}>Вы готовы начать?</h2>
-                <p className={styles.startText}>Блиц состоит из 30 вопросов. На каждый вопрос дается 15 секунд.</p>
+                <h2 className={styles.startTitle}>{t("Вы готовы начать?", "Бастауға дайынсыз ба?")}</h2>
+                <p className={styles.startText}>{t("Блиц состоит из 30 вопросов. На каждый вопрос дается 15 секунд.", "Блиц 30 сұрақтан тұрады. Әр сұраққа 15 секунд беріледі.")}</p>
                 <div className={styles.startMeta}>
-                  <span>30 вопросов</span>
-                  <span>15 секунд на вопрос</span>
-                  <span>Формат: Да / Нет</span>
+                  <span>{t("30 вопросов", "30 сұрақ")}</span>
+                  <span>{t("15 секунд на вопрос", "Әр сұраққа 15 секунд")}</span>
+                  <span>{t("Формат: Да / Нет", "Формат: Иә / Жоқ")}</span>
                 </div>
                 <div className={styles.startActions}>
                   <Button
@@ -228,10 +252,10 @@ export default function BlitzPage() {
                       setIsStarted(true);
                     }}
                   >
-                    Начать блиц
+                    {t("Начать блиц", "Блицті бастау")}
                   </Button>
                   <button className={styles.startCancel} type="button" onClick={() => router.push("/dashboard")}>
-                    Отмена
+                    {t("Отмена", "Бас тарту")}
                   </button>
                 </div>
               </article>
@@ -239,19 +263,19 @@ export default function BlitzPage() {
           ) : (
             <>
               <header className={styles.header}>
-                <h2 className={styles.title}>Блиц</h2>
-                <p className={styles.subtitle}>Устрой быстрый тест своим знаниям</p>
+                <h2 className={styles.title}>{t("Блиц", "Блиц")}</h2>
+                <p className={styles.subtitle}>{t("Устрой быстрый тест своим знаниям", "Біліміңізді жылдам тексеріңіз")}</p>
               </header>
 
               <section className={styles.progressSection}>
                 <div className={styles.timerRow}>
-                  <img className={styles.timerIcon} src={assetPaths.icons.blitz} alt="Таймер" />
+                  <img className={styles.timerIcon} src={assetPaths.icons.blitz} alt={t("Таймер", "Таймер")} />
                   <p className={styles.timerValue}>{formatTimer(secondsLeft)}</p>
                 </div>
                 <div className={styles.progressBar}>
                   <span style={{ width: `${timerProgressPercent}%` }} />
                 </div>
-                <p className={styles.counterText}>{activeIndex + 1} из {questions.length}</p>
+                <p className={styles.counterText}>{activeIndex + 1} {t("из", "ішінен")} {questions.length}</p>
               </section>
 
               <section className={styles.blitzArea}>
@@ -261,7 +285,7 @@ export default function BlitzPage() {
                   onClick={() => submitAnswer(false, "button")}
                   disabled={isTransitioning}
                 >
-                  Нет
+                  {t("Нет", "Жоқ")}
                 </Button>
 
                 <div className={styles.stack}>
@@ -280,7 +304,7 @@ export default function BlitzPage() {
                     {decisionLabel ? <span className={`${styles.decisionBadge} ${decisionClass}`}>{decisionLabel}</span> : null}
                     <p className={styles.topic}>{question.topic}</p>
                     <p className={styles.prompt}>{question.prompt}</p>
-                    <p className={styles.cardHint}>На мобильном можно отвечать свайпом влево/вправо.</p>
+                    <p className={styles.cardHint}>{t("На мобильном можно отвечать свайпом влево/вправо.", "Мобильді нұсқада солға/оңға свайппен жауап беруге болады.")}</p>
                   </article>
                 </div>
 
@@ -290,7 +314,7 @@ export default function BlitzPage() {
                   onClick={() => submitAnswer(true, "button")}
                   disabled={isTransitioning}
                 >
-                  Да
+                  {t("Да", "Иә")}
                 </Button>
               </section>
             </>

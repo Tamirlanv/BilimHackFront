@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import joinedload
 
+from app.core.config import settings
 from app.core.deps import DBSession, require_role
 from app.models import (
     Group,
@@ -66,6 +67,13 @@ def create_group(
     db: DBSession,
     current_user: User = Depends(require_role(UserRole.teacher)),
 ) -> TeacherGroupCreateResponse:
+    groups_count = _count_teacher_groups(db=db, teacher_id=current_user.id)
+    if groups_count >= settings.teacher_max_groups:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Можно создать не более {settings.teacher_max_groups} групп.",
+        )
+
     group_name = payload.name.strip()
     if not group_name:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Название группы не может быть пустым")
@@ -75,6 +83,12 @@ def create_group(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Группа с таким названием уже существует")
 
     student_ids = sorted(set(int(item) for item in payload.student_ids if int(item) > 0))
+    if len(student_ids) > settings.group_max_members:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"В группе может быть не более {settings.group_max_members} участников.",
+        )
+
     if student_ids:
         students = db.scalars(select(User).where(User.id.in_(student_ids), User.role == UserRole.student)).all()
         student_id_set = {student.id for student in students}
@@ -177,6 +191,17 @@ def send_invitation(
             teacher_id=current_user.id,
             group_id=payload.group_id,
         )
+        if _is_student_in_group(db=db, student_id=student.id, group_id=target_group.id):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Этот ученик уже состоит в выбранной группе.",
+            )
+        group_members_count = _count_group_members(db=db, group_id=target_group.id)
+        if group_members_count >= settings.group_max_members:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"В группе уже максимум {settings.group_max_members} участников.",
+            )
 
     existing_pending = db.scalar(
         select(GroupInvitation).where(
@@ -289,6 +314,26 @@ def _assert_student_visible_to_teacher(*, db: DBSession, teacher_id: int, studen
     )
     if not membership:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Студент не относится к вашим группам")
+
+
+def _count_teacher_groups(*, db: DBSession, teacher_id: int) -> int:
+    value = db.scalar(select(func.count(Group.id)).where(Group.teacher_id == teacher_id))
+    return int(value or 0)
+
+
+def _count_group_members(*, db: DBSession, group_id: int) -> int:
+    value = db.scalar(select(func.count(GroupMembership.id)).where(GroupMembership.group_id == group_id))
+    return int(value or 0)
+
+
+def _is_student_in_group(*, db: DBSession, student_id: int, group_id: int) -> bool:
+    membership = db.scalar(
+        select(GroupMembership).where(
+            GroupMembership.student_id == student_id,
+            GroupMembership.group_id == group_id,
+        )
+    )
+    return membership is not None
 
 
 def _serialize_invitation(invitation: GroupInvitation) -> TeacherInvitationResponse:

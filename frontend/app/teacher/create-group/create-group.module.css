@@ -42,6 +42,22 @@
   flex-wrap: wrap;
 }
 
+.limitBox {
+  display: grid;
+  gap: 8px;
+  max-width: 560px;
+  border: 1px solid var(--line-color);
+  border-radius: 14px;
+  padding: 14px;
+  background: #fff;
+}
+
+.limitBox p {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 14px;
+}
+
 .inviteGrid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

@@ -9,6 +9,7 @@ import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
 import { generateMistakesTest, getHistory, getProgress } from "@/lib/api";
 import { getToken } from "@/lib/auth";
+import { tr, uiLocale, useUiLanguage } from "@/lib/i18n";
 import { HistoryItem, StudentProgress } from "@/lib/types";
 import { assetPaths } from "@/src/assets";
 import styles from "@/app/history/history.module.css";
@@ -29,6 +30,8 @@ interface RecommendationCard {
 
 export default function HistoryPage() {
   const router = useRouter();
+  const uiLanguage = useUiLanguage();
+  const t = (ru: string, kz: string) => tr(uiLanguage, ru, kz);
 
   const [progress, setProgress] = useState<StudentProgress | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
@@ -47,7 +50,7 @@ export default function HistoryPage() {
         setHistory(historyData);
         setVisibleCount(INITIAL_VISIBLE_TESTS);
       })
-      .catch((err) => setError(err instanceof Error ? err.message : "Не удалось загрузить историю"))
+      .catch((err) => setError(err instanceof Error ? err.message : t("Не удалось загрузить историю", "Тарихты жүктеу мүмкін болмады")))
       .finally(() => setLoading(false));
   }, []);
 
@@ -59,14 +62,14 @@ export default function HistoryPage() {
   const worstAttempt = sortedByPercent[sortedByPercent.length - 1] || null;
 
   const favoriteSubject = useMemo(() => {
-    if (history.length === 0) return "Нет данных";
+    if (history.length === 0) return t("Нет данных", "Дерек жоқ");
     const counter = new Map<string, number>();
     for (const item of history) {
       const title = attemptTitle(item);
       counter.set(title, (counter.get(title) || 0) + 1);
     }
-    return [...counter.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] || "Нет данных";
-  }, [history]);
+    return [...counter.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] || t("Нет данных", "Дерек жоқ");
+  }, [history, t]);
 
   const alignmentPercent = useMemo(() => {
     const avg = progress?.avg_percent ?? 0;
@@ -78,43 +81,43 @@ export default function HistoryPage() {
   const hasMoreHistory = visibleCount < history.length;
 
   const recommendations = useMemo<RecommendationCard[]>(() => {
-    const weakTopic = progress?.weak_topics[0] || "Слабая тема";
+    const weakTopic = progress?.weak_topics[0] || t("Слабая тема", "Әлсіз тақырып");
     const hasAttempts = history.length > 0;
 
     return [
       {
         id: "review-errors",
-        label: "Приоритет для вас",
-        title: "Работа над ошибками",
-        text: "Короткая практика по вопросам, где вы ошибались в последних попытках.",
-        action: "Начать",
+        label: t("Приоритет для вас", "Сіз үшін басымдық"),
+        title: t("Работа над ошибками", "Қателермен жұмыс"),
+        text: t("Короткая практика по вопросам, где вы ошибались в последних попытках.", "Соңғы әрекеттердегі қателескен сұрақтар бойынша қысқа жаттығу."),
+        action: t("Начать", "Бастау"),
         icon: assetPaths.icons.repeat,
         kind: "mistakes",
       },
       {
         id: "weak-topic",
-        label: "Самая слабая тема",
+        label: t("Самая слабая тема", "Ең әлсіз тақырып"),
         title: weakTopic,
-        text: "Сконцентрируйтесь на самой слабой теме, чтобы поднять общий балл.",
-        action: "Начать",
+        text: t("Сконцентрируйтесь на самой слабой теме, чтобы поднять общий балл.", "Жалпы нәтижені көтеру үшін ең әлсіз тақырыпқа назар аударыңыз."),
+        action: t("Начать", "Бастау"),
         icon: assetPaths.icons.weakTopic,
         kind: "link",
         href: "/test",
       },
       {
         id: "control",
-        label: "Для вас",
-        title: hasAttempts ? "Контрольный тест" : "Первый тест",
+        label: t("Для вас", "Сіз үшін"),
+        title: hasAttempts ? t("Контрольный тест", "Бақылау тесті") : t("Первый тест", "Бірінші тест"),
         text: hasAttempts
-          ? "Проверьте прогресс после повторения и сравните результат с предыдущими тестами."
-          : "Сделайте первую попытку, чтобы система собрала базовый профиль знаний.",
-        action: "Начать",
+          ? t("Проверьте прогресс после повторения и сравните результат с предыдущими тестами.", "Қайталаудан кейін прогресті тексеріп, нәтижені алдыңғы тесттермен салыстырыңыз.")
+          : t("Сделайте первую попытку, чтобы система собрала базовый профиль знаний.", "Жүйе бастапқы білім профилін құруы үшін алғашқы тестті өтіңіз."),
+        action: t("Начать", "Бастау"),
         icon: assetPaths.icons.lesson,
         kind: "link",
         href: "/test",
       },
     ];
-  }, [history.length, progress?.weak_topics]);
+  }, [history.length, progress?.weak_topics, t]);
 
   const openMistakesReview = async () => {
     const token = getToken();
@@ -126,7 +129,7 @@ export default function HistoryPage() {
       const test = await generateMistakesTest(token, { num_questions: 10 });
       router.push(`/test/${test.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось подготовить повторение ошибок");
+      setError(err instanceof Error ? err.message : t("Не удалось подготовить повторение ошибок", "Қателерді қайталау тестін дайындау мүмкін болмады"));
     } finally {
       setLaunchingMistakes(false);
     }
@@ -137,7 +140,7 @@ export default function HistoryPage() {
       <AuthGuard roles={["student"]}>
         <AppShell>
           <div className={styles.page}>
-            <Card title="История">Загрузка...</Card>
+            <Card title={t("История", "Тарих")}>{t("Загрузка...", "Жүктелуде...")}</Card>
           </div>
         </AppShell>
       </AuthGuard>
@@ -150,65 +153,65 @@ export default function HistoryPage() {
         <div className={styles.page}>
           <section className={`${styles.section} ${styles.primarySection}`}>
             <div className={styles.sectionHeaderCentered}>
-              <h2 className={styles.sectionTitle}>История</h2>
-              <p className={styles.sectionSubtitle}>Краткий пересказ вашего текущего прогресса</p>
+              <h2 className={styles.sectionTitle}>{t("История", "Тарих")}</h2>
+              <p className={styles.sectionSubtitle}>{t("Краткий пересказ вашего текущего прогресса", "Ағымдағы прогрестің қысқаша көрінісі")}</p>
             </div>
 
             <div className={styles.metricsGrid}>
               <article className={styles.metricItem}>
-                <h3 className={styles.metricLabel}>Средняя успеваемость</h3>
-                <p className={styles.metricMeta}>По всем попыткам</p>
+                <h3 className={styles.metricLabel}>{t("Средняя успеваемость", "Орташа үлгерім")}</h3>
+                <p className={styles.metricMeta}>{t("По всем попыткам", "Барлық талпыныс бойынша")}</p>
                 <p className={styles.metricValue}>{formatPercent(progress?.avg_percent ?? 0)}</p>
               </article>
 
               <article className={styles.metricItem}>
-                <h3 className={styles.metricLabel}>Лучший результат</h3>
+                <h3 className={styles.metricLabel}>{t("Лучший результат", "Ең үздік нәтиже")}</h3>
                 <p className={styles.metricMeta}>
-                  {bestAttempt ? `${attemptTitle(bestAttempt)} (${difficultyLabel(bestAttempt.difficulty)})` : "Пока нет данных"}
+                  {bestAttempt ? `${attemptTitle(bestAttempt)} (${difficultyLabel(bestAttempt.difficulty, uiLanguage)})` : t("Пока нет данных", "Әзірге дерек жоқ")}
                 </p>
                 <p className={styles.metricValue}>{formatPercent(progress?.best_percent ?? 0)}</p>
               </article>
 
               <article className={styles.metricItem}>
-                <h3 className={styles.metricLabel}>Всего тестов</h3>
-                <p className={styles.metricMeta}>За все время</p>
+                <h3 className={styles.metricLabel}>{t("Всего тестов", "Барлық тест саны")}</h3>
+                <p className={styles.metricMeta}>{t("За все время", "Барлық уақыт ішінде")}</p>
                 <p className={styles.metricValue}>{progress?.total_tests ?? 0}</p>
               </article>
 
               <article className={styles.metricItem}>
-                <h3 className={styles.metricLabel}>Соответствие</h3>
-                <p className={styles.metricMeta}>Относительно образования</p>
+                <h3 className={styles.metricLabel}>{t("Соответствие", "Сәйкестік")}</h3>
+                <p className={styles.metricMeta}>{t("Относительно образования", "Білім деңгейіне қатысты")}</p>
                 <p className={styles.metricValue}>{alignmentPercent}%</p>
               </article>
 
               <article className={styles.metricItem}>
-                <h3 className={styles.metricLabel}>Худший результат</h3>
+                <h3 className={styles.metricLabel}>{t("Худший результат", "Ең төмен нәтиже")}</h3>
                 <p className={styles.metricMeta}>
-                  {worstAttempt ? `${attemptTitle(worstAttempt)} (${difficultyLabel(worstAttempt.difficulty)})` : "Пока нет данных"}
+                  {worstAttempt ? `${attemptTitle(worstAttempt)} (${difficultyLabel(worstAttempt.difficulty, uiLanguage)})` : t("Пока нет данных", "Әзірге дерек жоқ")}
                 </p>
-                <p className={styles.metricValue}>{worstAttempt ? formatPercent(worstAttempt.percent) : "0%"}</p>
+                <p className={styles.metricValue}>{worstAttempt ? formatPercent(worstAttempt.percent) : "–"}</p>
               </article>
 
               <article className={styles.metricItem}>
-                <h3 className={styles.metricLabel}>Любимчик</h3>
-                <p className={styles.metricMeta}>Наиболее часто проходимый</p>
-                <p className={styles.metricValueText}>{formatSubjectTitle(favoriteSubject)}</p>
+                <h3 className={styles.metricLabel}>{t("Любимчик", "Таңдаулы")}</h3>
+                <p className={styles.metricMeta}>{t("Наиболее часто проходимый", "Ең жиі өтетін")}</p>
+                <p className={styles.metricValueText}>{formatSubjectTitle(favoriteSubject, uiLanguage)}</p>
               </article>
             </div>
           </section>
 
           <section className={styles.section}>
             <div className={styles.sectionHeaderCentered}>
-              <h2 className={styles.sectionTitle}>История тестов</h2>
-              <p className={styles.sectionSubtitle}>Последние попытки и текущий уровень результатов</p>
+              <h2 className={styles.sectionTitle}>{t("История тестов", "Тесттер тарихы")}</h2>
+              <p className={styles.sectionSubtitle}>{t("Последние попытки и текущий уровень результатов", "Соңғы талпыныстар және ағымдағы нәтиже деңгейі")}</p>
             </div>
 
             {error && <div className="errorText">{error}</div>}
 
             {visibleHistory.length === 0 ? (
               <div className={styles.emptyState}>
-                <p className={styles.emptyText}>У вас пока нет завершенных тестов.</p>
-                <Button onClick={() => router.push("/test")}>Пройти первый тест</Button>
+                <p className={styles.emptyText}>{t("У вас пока нет завершенных тестов.", "Сізде әлі аяқталған тесттер жоқ.")}</p>
+                <Button onClick={() => router.push("/test")}>{t("Пройти первый тест", "Бірінші тестті өту")}</Button>
               </div>
             ) : (
               <>
@@ -220,12 +223,12 @@ export default function HistoryPage() {
                     return (
                       <article className={styles.attemptCard} key={item.test_id}>
                         <div className={styles.attemptHead}>
-                          <p className={styles.attemptDate}>{formatRelativeDate(item.created_at)}</p>
+                          <p className={styles.attemptDate}>{formatRelativeDate(item.created_at, uiLanguage)}</p>
                           <div className={styles.attemptMeta}>
                             <p className={`${styles.attemptScore} ${styles[scoreClass]}`}>{formatPercent(item.percent)}</p>
-                            <p className={styles.metaStrong}>{difficultyLabel(item.difficulty)}</p>
-                            <p className={styles.metaStrong}>{modeLabel(item.mode)}</p>
-                            <p className={styles.metaStrong}>Предупреждений: {item.warning_count}</p>
+                            <p className={styles.metaStrong}>{difficultyLabel(item.difficulty, uiLanguage)}</p>
+                            <p className={styles.metaStrong}>{modeLabel(item.mode, uiLanguage)}</p>
+                            <p className={styles.metaStrong}>{t("Предупреждений", "Ескертулер")}: {item.warning_count}</p>
                           </div>
                         </div>
 
@@ -234,13 +237,13 @@ export default function HistoryPage() {
                           <div className={styles.attemptInfo}>
                             <h3 className={styles.attemptTitle}>{title}</h3>
                             <p className={styles.attemptTopics}>
-                              {item.weak_topics.length > 0 ? item.weak_topics.slice(0, 3).join("   ") : "Сильное прохождение"}
+                              {item.weak_topics.length > 0 ? item.weak_topics.slice(0, 3).join("   ") : t("Сильное прохождение", "Мықты өту")}
                             </p>
                           </div>
                         </div>
 
                         <Button block className={styles.resultButton} onClick={() => router.push(`/results/${item.test_id}`)}>
-                          Результаты
+                          {t("Результаты", "Нәтижелер")}
                         </Button>
                       </article>
                     );
@@ -253,7 +256,7 @@ export default function HistoryPage() {
                     type="button"
                     onClick={() => setVisibleCount((prev) => Math.min(prev + LOAD_MORE_STEP, history.length))}
                   >
-                    Показать больше
+                    {t("Показать больше", "Көбірек көрсету")}
                   </button>
                 ) : null}
               </>
@@ -262,8 +265,8 @@ export default function HistoryPage() {
 
           <section className={styles.section}>
             <div className={styles.sectionHeaderCentered}>
-              <h2 className={styles.sectionTitle}>Рекомендуем</h2>
-              <p className={styles.sectionSubtitle}>Основаны на ваших тестах и результатах</p>
+              <h2 className={styles.sectionTitle}>{t("Рекомендуем", "Ұсынамыз")}</h2>
+              <p className={styles.sectionSubtitle}>{t("Основаны на ваших тестах и результатах", "Сіздің тесттеріңіз бен нәтижелеріңіз негізінде")}</p>
             </div>
 
             <div className={styles.recommendGrid}>
@@ -279,7 +282,7 @@ export default function HistoryPage() {
                   </div>
                   {item.kind === "mistakes" ? (
                     <Button className={styles.recommendAction} disabled={launchingMistakes} block onClick={openMistakesReview}>
-                      {launchingMistakes ? "Подготавливаем..." : item.action}
+                      {launchingMistakes ? t("Подготавливаем...", "Дайындалып жатыр...") : item.action}
                     </Button>
                   ) : (
                     <Button className={styles.recommendAction} block onClick={() => router.push(item.href || "/test")}>
@@ -322,10 +325,10 @@ function resolveSubjectIcon(subjectName: string): string {
   return assetPaths.icons.soon;
 }
 
-function difficultyLabel(value: HistoryItem["difficulty"]): string {
-  if (value === "easy") return "Легкий";
-  if (value === "hard") return "Сложный";
-  return "Средний";
+function difficultyLabel(value: HistoryItem["difficulty"], language: "RU" | "KZ"): string {
+  if (value === "easy") return tr(language, "Легкий", "Жеңіл");
+  if (value === "hard") return tr(language, "Сложный", "Күрделі");
+  return tr(language, "Средний", "Орташа");
 }
 
 function attemptTitle(item: Pick<HistoryItem, "subject_name" | "exam_kind">): string {
@@ -334,15 +337,15 @@ function attemptTitle(item: Pick<HistoryItem, "subject_name" | "exam_kind">): st
   return item.subject_name;
 }
 
-function modeLabel(value: HistoryItem["mode"]): string {
-  if (value === "audio") return "Аудио";
-  if (value === "oral") return "Устный";
-  return "Стандарт";
+function modeLabel(value: HistoryItem["mode"], language: "RU" | "KZ"): string {
+  if (value === "audio") return tr(language, "Аудио", "Аудио");
+  if (value === "oral") return tr(language, "Устный", "Ауызша");
+  return tr(language, "Стандарт", "Стандарт");
 }
 
-function formatRelativeDate(value: string): string {
+function formatRelativeDate(value: string, language: "RU" | "KZ"): string {
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Недавно";
+  if (Number.isNaN(date.getTime())) return tr(language, "Недавно", "Жақында");
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -350,9 +353,9 @@ function formatRelativeDate(value: string): string {
   target.setHours(0, 0, 0, 0);
   const diffDays = Math.round((today.getTime() - target.getTime()) / 86_400_000);
 
-  if (diffDays === 0) return "Сегодня";
-  if (diffDays === 1) return "Вчера";
-  return date.toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
+  if (diffDays === 0) return tr(language, "Сегодня", "Бүгін");
+  if (diffDays === 1) return tr(language, "Вчера", "Кеше");
+  return date.toLocaleDateString(uiLocale(language), { day: "numeric", month: "long" });
 }
 
 function formatPercent(value: number): string {
@@ -363,8 +366,8 @@ function formatPercent(value: number): string {
   return `${rounded.toFixed(1)}%`;
 }
 
-function formatSubjectTitle(value: string): string {
-  if (!value || value === "Нет данных") return "Нет данных";
+function formatSubjectTitle(value: string, language: "RU" | "KZ"): string {
+  if (!value || value === "Нет данных" || value === "Дерек жоқ") return tr(language, "Нет данных", "Дерек жоқ");
   const normalized = normalizeText(value);
   if (normalized.includes("ielts")) return "IELTS";
   if (normalized.includes("ент") || normalized.includes("ent")) return "ЕНТ";

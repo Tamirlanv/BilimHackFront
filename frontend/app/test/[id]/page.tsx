@@ -12,7 +12,8 @@ import Card from "@/components/ui/Card";
 import ProgressBar from "@/components/ui/ProgressBar";
 import { getQuestionTtsAudio, getTest, submitTest } from "@/lib/api";
 import { getToken } from "@/lib/auth";
-import { OptionItem, Question, Test } from "@/lib/types";
+import { tr, useUiLanguage } from "@/lib/i18n";
+import { Language, OptionItem, Question, Test } from "@/lib/types";
 import styles from "@/app/test/[id]/runner.module.css";
 
 interface AnswerMap {
@@ -74,6 +75,8 @@ export default function TestRunnerPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const testId = Number(params.id);
+  const uiLanguage = useUiLanguage();
+  const t = (ru: string, kz: string) => tr(uiLanguage, ru, kz);
 
   const [test, setTest] = useState<Test | null>(null);
   const [answers, setAnswers] = useState<AnswerMap>({});
@@ -110,9 +113,9 @@ export default function TestRunnerPage() {
 
     getTest(token, testId)
       .then((payload) => setTest(payload))
-      .catch((err) => setError(err instanceof Error ? err.message : "Не удалось загрузить тест"))
+      .catch((err) => setError(err instanceof Error ? err.message : t("Не удалось загрузить тест", "Тестті жүктеу мүмкін болмады")))
       .finally(() => setLoading(false));
-  }, [testId]);
+  }, [testId, uiLanguage]);
 
   useEffect(() => {
     setOralSupported(Boolean(getSpeechRecognitionCtor()));
@@ -240,7 +243,7 @@ export default function TestRunnerPage() {
       if (targetQuestion.type !== "oral_answer") return;
       const SpeechRecognitionCtorValue = getSpeechRecognitionCtor();
       if (!SpeechRecognitionCtorValue) {
-        setOralError("Распознавание речи недоступно в этом браузере. Введите ответ вручную.");
+        setOralError(t("Распознавание речи недоступно в этом браузере. Введите ответ вручную.", "Бұл браузерде дауысты тану қолжетімсіз. Жауапты қолмен енгізіңіз."));
         return;
       }
 
@@ -289,7 +292,7 @@ export default function TestRunnerPage() {
       };
 
       recognition.onerror = (event) => {
-        const message = getSpeechRecognitionErrorMessage(event.error);
+        const message = getSpeechRecognitionErrorMessage(event.error, uiLanguage);
         if (message) {
           setOralError(message);
         }
@@ -310,14 +313,14 @@ export default function TestRunnerPage() {
       try {
         recognition.start();
       } catch (err) {
-        setOralError(err instanceof Error ? err.message : "Не удалось запустить распознавание речи.");
+        setOralError(err instanceof Error ? err.message : t("Не удалось запустить распознавание речи.", "Дауысты тануды іске қосу мүмкін болмады."));
         setOralListening(false);
         setOralQuestionId(null);
         speechRecognitionRef.current = null;
         speechQuestionIdRef.current = null;
       }
     },
-    [answers, stopOralRecognition, test?.language, updateAnswer],
+    [answers, stopOralRecognition, t, test?.language, uiLanguage, updateAnswer],
   );
 
   const stopAudio = useCallback(() => {
@@ -347,7 +350,7 @@ export default function TestRunnerPage() {
   const speakWithBrowserTTS = useCallback(
     (targetQuestion: Question, fallbackMessage?: string) => {
       if (typeof window === "undefined" || !("speechSynthesis" in window)) {
-        setAudioError("На этом устройстве озвучка недоступна.");
+        setAudioError(t("На этом устройстве озвучка недоступна.", "Бұл құрылғыда дыбыстау қолжетімсіз."));
         return;
       }
 
@@ -376,13 +379,13 @@ export default function TestRunnerPage() {
       utterance.onerror = () => {
         setAudioPlaying(false);
         utteranceRef.current = null;
-        setAudioError("Не удалось воспроизвести вопрос. Попробуйте снова.");
+        setAudioError(t("Не удалось воспроизвести вопрос. Попробуйте снова.", "Сұрақты дыбыстау мүмкін болмады. Қайта көріңіз."));
       };
 
       utteranceRef.current = utterance;
       synth.speak(utterance);
     },
-    [test?.language],
+    [t, test?.language],
   );
 
   const speakQuestion = useCallback(
@@ -404,7 +407,7 @@ export default function TestRunnerPage() {
         if (requestId !== ttsRequestIdRef.current) return;
 
         if (!audioBlob.type.startsWith("audio/")) {
-          throw new Error("Некорректный формат аудио от сервера.");
+          throw new Error(t("Некорректный формат аудио от сервера.", "Серверден қате аудио форматы келді."));
         }
 
         const objectUrl = URL.createObjectURL(audioBlob);
@@ -435,7 +438,7 @@ export default function TestRunnerPage() {
             audioObjectUrlRef.current = null;
           }
           audioElementRef.current = null;
-          speakWithBrowserTTS(targetQuestion, "Серверный TTS недоступен, включен голос браузера.");
+          speakWithBrowserTTS(targetQuestion, t("Серверный TTS недоступен, включен голос браузера.", "Серверлік TTS қолжетімсіз, браузер дауысы қосылды."));
         };
 
         await audio.play();
@@ -445,20 +448,20 @@ export default function TestRunnerPage() {
         if (requestId !== ttsRequestIdRef.current) return;
         setAudioLoading(false);
         if (err instanceof DOMException && err.name === "NotAllowedError") {
-          setAudioError("Автовоспроизведение заблокировано браузером. Нажмите «Озвучить вопрос».");
+          setAudioError(t("Автовоспроизведение заблокировано браузером. Нажмите «Озвучить вопрос».", "Автоойнатуды браузер бұғаттады. «Сұрақты дыбыстау» түймесін басыңыз."));
           return;
         }
         const reason = err instanceof Error ? err.message : "";
         const fallbackText = reason
-          ? `Серверный TTS недоступен (${reason}). Включен голос браузера.`
-          : "Серверный TTS недоступен, включен голос браузера.";
+          ? `${t("Серверный TTS недоступен", "Серверлік TTS қолжетімсіз")} (${reason}). ${t("Включен голос браузера.", "Браузер дауысы қосылды.")}`
+          : t("Серверный TTS недоступен, включен голос браузера.", "Серверлік TTS қолжетімсіз, браузер дауысы қосылды.");
         speakWithBrowserTTS(targetQuestion, fallbackText);
         if (err instanceof Error) {
           console.warn("Server TTS failed:", err.message);
         }
       }
     },
-    [speakWithBrowserTTS, stopAudio, test],
+    [speakWithBrowserTTS, stopAudio, t, test],
   );
 
   useEffect(() => {
@@ -511,12 +514,12 @@ export default function TestRunnerPage() {
         await submitTest(token, test.id, body);
         router.push(`/results/${test.id}`);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Не удалось отправить тест на проверку");
+        setError(err instanceof Error ? err.message : t("Не удалось отправить тест на проверку", "Тестті тексеруге жіберу мүмкін болмады"));
       } finally {
         setSubmitting(false);
       }
     },
-    [answers, router, stopAudio, stopOralRecognition, test],
+    [answers, router, stopAudio, stopOralRecognition, t, test],
   );
 
   useEffect(() => {
@@ -611,7 +614,7 @@ export default function TestRunnerPage() {
       <AuthGuard roles={["student"]}>
         <AppShell>
           <div className={styles.page}>
-            <Card title="Загрузка теста">Подготавливаем вопросы...</Card>
+            <Card title={t("Загрузка теста", "Тест жүктелуде")}>{t("Подготавливаем вопросы...", "Сұрақтар дайындалып жатыр...")}</Card>
           </div>
         </AppShell>
       </AuthGuard>
@@ -623,7 +626,7 @@ export default function TestRunnerPage() {
       <AuthGuard roles={["student"]}>
         <AppShell>
           <div className={styles.page}>
-            <Card title="Тест не найден">Проверьте ссылку или сгенерируйте новый тест.</Card>
+            <Card title={t("Тест не найден", "Тест табылмады")}>{t("Проверьте ссылку или сгенерируйте новый тест.", "Сілтемені тексеріңіз немесе жаңа тест жасаңыз.")}</Card>
           </div>
         </AppShell>
       </AuthGuard>
@@ -635,46 +638,61 @@ export default function TestRunnerPage() {
       <AppShell>
         <div className={styles.page}>
           <Card
-            title={`Тест #${test.id}`}
-            subtitle={`${currentIndex + 1} / ${total} вопрос`}
+            title={`${t("Тест", "Тест")} #${test.id}`}
+            subtitle={`${currentIndex + 1} / ${total} ${t("вопрос", "сұрақ")}`}
             action={<Badge variant="info">{Math.round(progress)}%</Badge>}
           >
             <div className={styles.header}>
               <div className={styles.headerBadges}>
                 {test.exam_kind && <Badge variant="info">{test.exam_kind.toUpperCase()}</Badge>}
-                <Badge>{formatModeBadge(test.mode)}</Badge>
-                <Badge>{formatLanguageBadge(test.language)}</Badge>
-                <Badge>{formatDifficultyBadge(test.difficulty)}</Badge>
+                <Badge>{formatModeBadge(test.mode, uiLanguage)}</Badge>
+                <Badge>{formatLanguageBadge(test.language, uiLanguage)}</Badge>
+                <Badge>{formatDifficultyBadge(test.difficulty, uiLanguage)}</Badge>
               </div>
               <div className={styles.headerMeta}>
-                <span className={styles.metaText}>Таймер: {formatDuration(elapsedSeconds)}</span>
-                {remainingSeconds !== null && <span className={styles.metaText}>Осталось: {formatDuration(remainingSeconds)}</span>}
-                <span className={styles.metaText}>Предупреждения: {integrityWarnings.length}</span>
-                {warningLimit !== null && <span className={styles.metaText}>Лимит предупреждений: {warningLimit}</span>}
+                <span className={`${styles.metaText} ${styles.metaTimer}`}>{t("Таймер", "Таймер")}: {formatDuration(elapsedSeconds)}</span>
+                {remainingSeconds !== null && (
+                  <span className={`${styles.metaText} ${styles.metaRemaining}`}>
+                    {t("Осталось", "Қалды")}: {formatDuration(remainingSeconds)}
+                  </span>
+                )}
+                <span className={`${styles.metaText} ${styles.metaWarnings}`}>
+                  {t("Предупреждения", "Ескертулер")}: {integrityWarnings.length}
+                </span>
+                {warningLimit !== null && (
+                  <span className={`${styles.metaText} ${styles.metaWarningLimit}`}>
+                    {t("Лимит предупреждений", "Ескерту лимиті")}: {warningLimit}
+                  </span>
+                )}
               </div>
-              <div style={{ minWidth: 180, flex: "1 1 220px" }}>
+              <div className={styles.progressWrap}>
                 <ProgressBar value={progress} />
               </div>
             </div>
             {isTimeLimitReached && (
-              <div className={styles.timeLimitError}>Лимит времени достигнут. Отправляем тест на проверку...</div>
+              <div className={styles.timeLimitError}>{t("Лимит времени достигнут. Отправляем тест на проверку...", "Уақыт лимиті бітті. Тест тексеруге жіберіліп жатыр...")}</div>
             )}
             {isWarningLimitReached && (
-              <div className={styles.timeLimitError}>Достигнут лимит предупреждений. Тест автоматически отправляется.</div>
+              <div className={styles.timeLimitError}>{t("Достигнут лимит предупреждений. Тест автоматически отправляется.", "Ескерту лимиті жетті. Тест автоматты түрде жіберіледі.")}</div>
             )}
           </Card>
 
-          <Card title="Вопрос">
+          <Card title={t("Вопрос", "Сұрақ")}>
             <div className={styles.questionWrap}>
               <h3 className={styles.questionTitle}>{sanitizeQuestionPrompt(question.prompt)}</h3>
 
               {test.mode === "audio" && (
                 <div className={styles.audioControls}>
                   <Button variant="secondary" disabled={audioLoading} onClick={() => void speakQuestion(question)}>
-                    <Volume2 size={16} /> {audioLoading ? "Готовим аудио..." : audioPlaying ? "Повторить озвучку" : "Озвучить вопрос"}
+                    <Volume2 size={16} />{" "}
+                    {audioLoading
+                      ? t("Готовим аудио...", "Аудио дайындалып жатыр...")
+                      : audioPlaying
+                        ? t("Повторить озвучку", "Қайта дыбыстау")
+                        : t("Озвучить вопрос", "Сұрақты дыбыстау")}
                   </Button>
                   <Button variant="ghost" disabled={!audioPlaying && !audioLoading} onClick={stopAudio}>
-                    <VolumeX size={16} /> Стоп
+                    <VolumeX size={16} /> {t("Стоп", "Тоқтату")}
                   </Button>
                 </div>
               )}
@@ -685,6 +703,7 @@ export default function TestRunnerPage() {
               {(question.type === "short_text" || question.type === "oral_answer") &&
                 renderTextAnswer(
                   question,
+                  uiLanguage,
                   answerForCurrent,
                   handleTextFocus,
                   handleTextChange,
@@ -700,7 +719,7 @@ export default function TestRunnerPage() {
                     onStop: () => stopOralRecognition(),
                   },
                 )}
-              {question.type === "matching" && renderMatching(question, answerForCurrent, updateMatching)}
+              {question.type === "matching" && renderMatching(question, uiLanguage, answerForCurrent, updateMatching)}
             </div>
 
             {error && <div className="errorText">{error}</div>}
@@ -715,7 +734,7 @@ export default function TestRunnerPage() {
                   setCurrentIndex((idx) => Math.max(0, idx - 1));
                 }}
               >
-                Назад
+                {t("Назад", "Артқа")}
               </Button>
 
               {currentIndex < total - 1 ? (
@@ -726,11 +745,11 @@ export default function TestRunnerPage() {
                     setCurrentIndex((idx) => Math.min(total - 1, idx + 1));
                   }}
                 >
-                  Далее
+                  {t("Далее", "Келесі")}
                 </Button>
               ) : (
                 <Button disabled={submitting} onClick={() => submit()}>
-                  {submitting ? "Проверяем ответы..." : "Завершить тест"}
+                  {submitting ? t("Проверяем ответы...", "Жауаптар тексерілуде...") : t("Завершить тест", "Тестті аяқтау")}
                 </Button>
               )}
             </div>
@@ -794,6 +813,7 @@ function renderMultiChoice(
 
 function renderTextAnswer(
   question: Question,
+  language: Language,
   answer: Record<string, unknown>,
   onFocus: (questionId: number) => void,
   onTextChange: (questionId: number, value: string, answerKey: "text" | "spoken_answer_text") => void,
@@ -802,6 +822,7 @@ function renderTextAnswer(
   forceOralInput: boolean,
   oralControls: OralAnswerControls,
 ) {
+  const t = (ru: string, kz: string) => tr(language, ru, kz);
   const isOral = question.type === "oral_answer" || forceOralInput;
   const key = isOral ? "spoken_answer_text" : "text";
   const value = (answer[key] as string | undefined) || "";
@@ -812,7 +833,7 @@ function renderTextAnswer(
       {isOral && (
         <div className={styles.oralWrap}>
           <div className={styles.oralHint}>
-            Проговорите ответ голосом. Текст автоматически появится в поле ниже.
+            {t("Проговорите ответ голосом. Текст автоматически появится в поле ниже.", "Жауапты дауыстап айтыңыз. Мәтін төмендегі өріске автоматты түрде түседі.")}
           </div>
           <div className={styles.oralControls}>
             <Button
@@ -820,14 +841,14 @@ function renderTextAnswer(
               onClick={() => oralControls.onStart(question)}
               disabled={!oralControls.supported || oralActive}
             >
-              <Mic size={16} /> {oralActive ? "Идет запись..." : "Начать запись"}
+              <Mic size={16} /> {oralActive ? t("Идет запись...", "Жазылып жатыр...") : t("Начать запись", "Жазуды бастау")}
             </Button>
             <Button variant="ghost" disabled={!oralActive} onClick={oralControls.onStop}>
-              <Square size={16} /> Остановить
+              <Square size={16} /> {t("Остановить", "Тоқтату")}
             </Button>
           </div>
           {!oralControls.supported && (
-            <div className="muted">Браузер не поддерживает распознавание речи. Можно ввести ответ вручную.</div>
+            <div className="muted">{t("Браузер не поддерживает распознавание речи. Можно ввести ответ вручную.", "Браузер дауысты тануды қолдамайды. Жауапты қолмен енгізуге болады.")}</div>
           )}
           {oralControls.error && <div className={styles.oralError}>{oralControls.error}</div>}
         </div>
@@ -837,7 +858,7 @@ function renderTextAnswer(
         onChange={(e) => onTextChange(question.id, e.target.value, key)}
         onPaste={(e) => onPasteDetected(question.id, e.clipboardData?.getData("text")?.length || 0)}
         onKeyDown={(e) => onPasteShortcut(question.id, e.key, e.ctrlKey || e.metaKey, e.altKey)}
-        placeholder={isOral ? "Сюда попадает распознанная речь" : "Ваш ответ"}
+        placeholder={isOral ? t("Сюда попадает распознанная речь", "Танылған сөйлеу осында түседі") : t("Ваш ответ", "Сіздің жауабыңыз")}
         rows={4}
         value={value}
       />
@@ -847,9 +868,11 @@ function renderTextAnswer(
 
 function renderMatching(
   question: Question,
+  language: Language,
   answer: Record<string, unknown>,
   updateMatching: (questionId: number, left: string, right: string) => void,
 ) {
+  const t = (ru: string, kz: string) => tr(language, ru, kz);
   const leftItems = question.options_json?.left || [];
   const rightItems = question.options_json?.right || [];
   const selectedMatches = (answer.matches as Record<string, string> | undefined) || {};
@@ -860,7 +883,7 @@ function renderMatching(
         <label className={styles.matchRow} key={`${question.id}-${left}`}>
           <span>{left}</span>
           <select onChange={(e) => updateMatching(question.id, left, e.target.value)} value={selectedMatches[left] || ""}>
-            <option value="">Выберите...</option>
+            <option value="">{t("Выберите...", "Таңдаңыз...")}</option>
             {rightItems.map((right) => (
               <option key={`${question.id}-${left}-${right}`} value={right}>
                 {right}
@@ -882,24 +905,24 @@ function getSpeechRecognitionCtor(): SpeechRecognitionCtor | null {
   return maybeWindow.SpeechRecognition || maybeWindow.webkitSpeechRecognition || null;
 }
 
-function getSpeechRecognitionErrorMessage(errorCode?: string): string {
-  if (!errorCode) return "Не удалось распознать речь. Попробуйте еще раз.";
+function getSpeechRecognitionErrorMessage(errorCode: string | undefined, language: Language): string {
+  if (!errorCode) return tr(language, "Не удалось распознать речь. Попробуйте еще раз.", "Сөйлеуді тану мүмкін болмады. Қайта көріңіз.");
   if (errorCode === "not-allowed" || errorCode === "service-not-allowed") {
-    return "Нет доступа к микрофону. Разрешите доступ в настройках браузера.";
+    return tr(language, "Нет доступа к микрофону. Разрешите доступ в настройках браузера.", "Микрофонға рұқсат жоқ. Браузер баптауларында рұқсат беріңіз.");
   }
   if (errorCode === "audio-capture") {
-    return "Микрофон не найден. Подключите микрофон и попробуйте снова.";
+    return tr(language, "Микрофон не найден. Подключите микрофон и попробуйте снова.", "Микрофон табылмады. Микрофонды қосып, қайта көріңіз.");
   }
   if (errorCode === "network") {
-    return "Ошибка сети при распознавании речи. Проверьте подключение к интернету.";
+    return tr(language, "Ошибка сети при распознавании речи. Проверьте подключение к интернету.", "Сөйлеуді тану кезінде желі қатесі шықты. Интернет байланысын тексеріңіз.");
   }
   if (errorCode === "no-speech") {
-    return "Речь не распознана. Говорите чуть громче и повторите попытку.";
+    return tr(language, "Речь не распознана. Говорите чуть громче и повторите попытку.", "Сөйлеу танылмады. Дауысыңызды сәл көтеріп, қайта көріңіз.");
   }
   if (errorCode === "aborted") {
     return "";
   }
-  return "Не удалось распознать речь. Попробуйте еще раз.";
+  return tr(language, "Не удалось распознать речь. Попробуйте еще раз.", "Сөйлеуді тану мүмкін болмады. Қайта көріңіз.");
 }
 
 function normalizeSpokenText(value: string): string {
@@ -948,18 +971,18 @@ function sanitizeQuestionPrompt(prompt: string): string {
   return prompt.replace(/\s*\((вариант|нұсқа)\s*\d+\)\s*$/i, "").trim();
 }
 
-function formatModeBadge(mode: Test["mode"]): string {
-  if (mode === "audio") return "Аудио";
-  if (mode === "oral") return "Устный";
-  return "Стандарт";
+function formatModeBadge(mode: Test["mode"], language: Language): string {
+  if (mode === "audio") return tr(language, "Аудио", "Аудио");
+  if (mode === "oral") return tr(language, "Устный", "Ауызша");
+  return tr(language, "Стандарт", "Стандарт");
 }
 
-function formatLanguageBadge(language: Test["language"]): string {
-  return language === "KZ" ? "Казахский" : "Русский";
+function formatLanguageBadge(value: Test["language"], language: Language): string {
+  return value === "KZ" ? tr(language, "Казахский", "Қазақша") : tr(language, "Русский", "Орысша");
 }
 
-function formatDifficultyBadge(difficulty: Test["difficulty"]): string {
-  if (difficulty === "easy") return "Легкий";
-  if (difficulty === "hard") return "Сложный";
-  return "Средний";
+function formatDifficultyBadge(difficulty: Test["difficulty"], language: Language): string {
+  if (difficulty === "easy") return tr(language, "Легкий", "Жеңіл");
+  if (difficulty === "hard") return tr(language, "Сложный", "Күрделі");
+  return tr(language, "Средний", "Орташа");
 }

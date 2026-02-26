@@ -26,7 +26,8 @@
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  min-width: 0;
 }
 
 .metaText {
@@ -34,6 +35,30 @@
   font-size: 14px;
   line-height: 1.3;
   font-weight: 350;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+.metaTimer {
+  min-width: 112px;
+}
+
+.metaRemaining {
+  min-width: 122px;
+}
+
+.metaWarnings {
+  min-width: 126px;
+}
+
+.metaWarningLimit {
+  min-width: 176px;
+}
+
+.progressWrap {
+  min-width: 180px;
+  flex: 1 1 220px;
 }
 
 .timeLimitError {
@@ -145,5 +170,16 @@
 @media (max-width: 900px) {
   .matchRow {
     grid-template-columns: 1fr;
+  }
+
+  .headerMeta {
+    flex-wrap: wrap;
+  }
+
+  .metaTimer,
+  .metaRemaining,
+  .metaWarnings,
+  .metaWarningLimit {
+    min-width: unset;
   }
 }
