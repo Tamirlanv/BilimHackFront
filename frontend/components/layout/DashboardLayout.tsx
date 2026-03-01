@@ -7,7 +7,6 @@ import {
   BookOpenCheck,
   ChartSpline,
   Clock3,
-  FolderPlus,
   LayoutGrid,
   LogOut,
   Menu,
@@ -45,7 +44,6 @@ function getPageTitle(pathname: string, role: string | undefined, language: Lang
   if (pathname.startsWith("/results")) return tr(language, "Результаты", "Нәтижелер");
   if (pathname.startsWith("/history")) return tr(language, "История", "Тарих");
   if (pathname.startsWith("/progress")) return tr(language, "Аналитика", "Аналитика");
-  if (pathname.startsWith("/teacher/create-group")) return tr(language, "Создать группу", "Топ құру");
   if (pathname.startsWith("/teacher/groups")) return tr(language, "Группа", "Топ");
   if (pathname.startsWith("/teacher/students")) return tr(language, "Аналитика студента", "Оқушы аналитикасы");
   if (pathname === "/teacher") return tr(language, "Группы", "Топтар");
@@ -88,11 +86,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           label: t("Группы", "Топтар"),
           icon: <Users size={18} />,
         },
-        {
-          href: "/teacher/create-group",
-          label: t("Создать группу", "Топ құру"),
-          icon: <FolderPlus size={18} />,
-        },
       ];
     }
 
@@ -128,9 +121,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const isActive = (href: string) => {
     if (href === "/teacher") {
       return pathname === "/teacher" || pathname.startsWith("/teacher/groups/") || pathname.startsWith("/teacher/students/");
-    }
-    if (href === "/teacher/create-group") {
-      return pathname === "/teacher/create-group";
     }
     if (href === "/test") {
       return pathname.startsWith("/test") || pathname.startsWith("/results");

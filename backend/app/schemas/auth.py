@@ -44,6 +44,10 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=6, max_length=128)
 
 
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str = Field(min_length=16, max_length=4096)
+
+
 class UserResponse(BaseModel):
     id: int
     role: UserRole
@@ -61,5 +65,12 @@ class UserResponse(BaseModel):
 
 class AuthResponse(BaseModel):
     access_token: str
+    refresh_token: str | None = None
     token_type: str = "bearer"
     user: UserResponse
+
+
+class TokenRefreshResponse(BaseModel):
+    access_token: str
+    refresh_token: str | None = None
+    token_type: str = "bearer"

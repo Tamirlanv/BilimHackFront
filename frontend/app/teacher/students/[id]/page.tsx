@@ -1,7 +1,8 @@
 "use client";
 
+import { ArrowLeft } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 import AppShell from "@/components/AppShell";
 import AuthGuard from "@/components/AuthGuard";
@@ -54,6 +55,7 @@ const SUBJECT_FALLBACK_KZ = [
 ];
 
 export default function TeacherStudentAnalyticsPage() {
+  const router = useRouter();
   const params = useParams<{ id: string }>();
   const searchParams = useSearchParams();
   const studentId = Number(params.id);
@@ -63,6 +65,14 @@ export default function TeacherStudentAnalyticsPage() {
   const studentTitle = studentName
     ? `${t("Аналитика ученика", "Оқушы аналитикасы")} ${studentName}`
     : `${t("Аналитика ученика", "Оқушы аналитикасы")} #${studentId}`;
+
+  const goBack = () => {
+    if (window.history.length > 1) {
+      router.back();
+      return;
+    }
+    router.push("/teacher");
+  };
 
   const [progress, setProgress] = useState<StudentProgress | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
@@ -327,6 +337,12 @@ export default function TeacherStudentAnalyticsPage() {
       <AppShell>
         <div className={styles.page}>
           <section className={`${styles.section} ${styles.primarySection}`}>
+            <div className={styles.backRow}>
+              <button type="button" className={styles.backButton} onClick={goBack}>
+                <ArrowLeft size={16} />
+                <span>{t("Назад", "Артқа")}</span>
+              </button>
+            </div>
             <div className={styles.sectionHeaderCentered}>
               <h2 className={styles.sectionTitle}>{studentTitle}</h2>
               <p className={styles.sectionSubtitle}>{t("Краткий пересказ текущего прогресса", "Ағымдағы прогрестің қысқаша көрінісі")}</p>

@@ -18,6 +18,7 @@
 ## Usage Rules
 - In Next.js, assets are served from `/public/assets/...`
 - Import paths from `src/assets/index.ts` registry instead of hardcoding URLs.
+- `public/assets` is the single source of truth for static assets; do not duplicate icons/images in `src/assets`.
 - SVG icons should keep consistent line style: rounded caps, rounded joins, 1.8-2.2 stroke width.
 - Compress large raster images before commit (`.webp` preferred for photos/illustrations).
 

@@ -5,6 +5,7 @@ class AuthStorage {
     : _secureStorage = secureStorage ?? const FlutterSecureStorage();
 
   static const _tokenKey = 'oku_access_token';
+  static const _refreshTokenKey = 'oku_refresh_token';
   static const _userJsonKey = 'oku_user_json';
   static const _apiBaseUrlKey = 'oku_api_base_url';
 
@@ -18,6 +19,17 @@ class AuthStorage {
     return _secureStorage.read(key: _tokenKey);
   }
 
+  Future<void> saveRefreshToken(String? token) {
+    if (token == null || token.trim().isEmpty) {
+      return _secureStorage.delete(key: _refreshTokenKey);
+    }
+    return _secureStorage.write(key: _refreshTokenKey, value: token);
+  }
+
+  Future<String?> getRefreshToken() {
+    return _secureStorage.read(key: _refreshTokenKey);
+  }
+
   Future<void> saveUserJson(String userJson) {
     return _secureStorage.write(key: _userJsonKey, value: userJson);
   }
@@ -28,6 +40,7 @@ class AuthStorage {
 
   Future<void> clear() async {
     await _secureStorage.delete(key: _tokenKey);
+    await _secureStorage.delete(key: _refreshTokenKey);
     await _secureStorage.delete(key: _userJsonKey);
   }
 

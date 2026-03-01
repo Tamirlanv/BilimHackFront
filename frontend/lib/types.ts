@@ -27,6 +27,7 @@ export interface User {
 
 export interface AuthResponse {
   access_token: string;
+  refresh_token?: string | null;
   token_type: string;
   user: User;
 }
@@ -145,6 +146,11 @@ export interface StudentProgress {
   subject_stats: Array<{ subject_id: number; subject_name: string; tests_count: number; avg_percent: number }>;
 }
 
+export interface StudentDashboard {
+  progress: StudentProgress;
+  history: HistoryItem[];
+}
+
 export interface GroupAnalytics {
   group_id: number;
   group_name: string;
@@ -178,6 +184,8 @@ export interface TeacherGroupMember {
   tests_count: number;
   avg_percent: number;
   warnings_count: number;
+  weak_topic?: string | null;
+  last_activity_at?: string | null;
 }
 
 export interface TeacherGroupMembers {

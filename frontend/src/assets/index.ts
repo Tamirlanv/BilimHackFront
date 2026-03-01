@@ -1,4 +1,5 @@
 const ICONS_VERSION = "20260226-1";
+const ILLUSTRATIONS_VERSION = "20260301-1";
 
 export const assetPaths = {
   logo: {
@@ -6,6 +7,7 @@ export const assetPaths = {
     svg: "/assets/logo/logo.svg",
   },
   icons: {
+    plus: `/assets/icons/material-symbols_add-rounded.svg?v=${ICONS_VERSION}`,
     wand: `/assets/icons/wand.svg?v=${ICONS_VERSION}`,
     book: `/assets/icons/book.svg?v=${ICONS_VERSION}`,
     spark: `/assets/icons/spark.svg?v=${ICONS_VERSION}`,
@@ -29,6 +31,8 @@ export const assetPaths = {
     ielts: `/assets/icons/ri_english-input.svg?v=${ICONS_VERSION}`,
     blitz: `/assets/icons/ph_lightning-fill.svg?v=${ICONS_VERSION}`,
     soon: `/assets/icons/solar_server-square-update-outline.svg?v=${ICONS_VERSION}`,
+    group: `/assets/icons/material-symbols_group-rounded.svg?v=${ICONS_VERSION}`,
+    student: `/assets/icons/material-symbols_group-rounded-1.svg?v=${ICONS_VERSION}`,
   },
   images: {
     parchment: "/assets/images/bg-parchment.svg",
@@ -37,8 +41,12 @@ export const assetPaths = {
     qrFaq: "/assets/images/FAQ_bot.png",
   },
   illustrations: {
-    owl: "/assets/illustrations/illus-owl.svg",
-    constellation: "/assets/illustrations/illus-constellation.svg",
+    owl: `/assets/illustrations/illus-owl.svg?v=${ILLUSTRATIONS_VERSION}`,
+    constellation: `/assets/illustrations/illus-constellation.svg?v=${ILLUSTRATIONS_VERSION}`,
+    landingBooks: `/assets/illustrations/Untitled%201.png?v=${ILLUSTRATIONS_VERSION}`,
+    landingSubjects: `/assets/illustrations/gsfdkgsf%201.png?v=${ILLUSTRATIONS_VERSION}`,
+    landingPrep: `/assets/illustrations/iconsfsad%201.png?v=${ILLUSTRATIONS_VERSION}`,
+    landingTeacher: `/assets/illustrations/teacher%201.png?v=${ILLUSTRATIONS_VERSION}`,
   },
   audio: {
     placeholder: "/assets/audio/.gitkeep",

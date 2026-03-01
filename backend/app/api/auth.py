@@ -1,16 +1,36 @@
-from fastapi import APIRouter, HTTPException, status
-from sqlalchemy import func, select
+from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 
+from fastapi import APIRouter, HTTPException, Request, Response, status
+from sqlalchemy import delete, func, select
+
+from app.core.config import settings
 from app.core.deps import DBSession
-from app.core.security import create_access_token, get_password_hash, verify_password
-from app.models import Group, GroupMembership, PreferredLanguage, StudentProfile, User, UserRole
-from app.schemas.auth import AuthResponse, EducationLevel, LoginRequest, RegisterRequest, UserResponse
+from app.core.security import (
+    TokenError,
+    create_access_token,
+    create_refresh_token,
+    decode_refresh_token,
+    get_password_hash,
+    hash_refresh_token,
+    verify_password,
+)
+from app.models import Group, GroupMembership, PreferredLanguage, StudentProfile, User, UserRole, UserSession
+from app.schemas.auth import (
+    AuthResponse,
+    EducationLevel,
+    LoginRequest,
+    RefreshTokenRequest,
+    RegisterRequest,
+    TokenRefreshResponse,
+    UserResponse,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.post("/register", response_model=AuthResponse)
-def register(payload: RegisterRequest, db: DBSession) -> AuthResponse:
+def register(payload: RegisterRequest, request: Request, response: Response, db: DBSession) -> AuthResponse:
     email_value = payload.email.strip().lower()
     username_value = payload.username.strip()
 
@@ -52,19 +72,76 @@ def register(payload: RegisterRequest, db: DBSession) -> AuthResponse:
     db.commit()
     db.refresh(user)
 
-    token = create_access_token(user.id)
-    return AuthResponse(access_token=token, user=_build_user_response(user))
+    access_token, refresh_token = _create_tokens_for_user(
+        db=db,
+        user_id=user.id,
+        request=request,
+    )
+    return _build_auth_response(response=response, access_token=access_token, refresh_token=refresh_token, user=user)
 
 
 @router.post("/login", response_model=AuthResponse)
-def login(payload: LoginRequest, db: DBSession) -> AuthResponse:
+def login(payload: LoginRequest, request: Request, response: Response, db: DBSession) -> AuthResponse:
     email_value = payload.email.strip().lower()
     user = db.scalar(select(User).where(func.lower(User.email) == email_value))
     if not user or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Неверная почта или пароль")
 
-    token = create_access_token(user.id)
-    return AuthResponse(access_token=token, user=_build_user_response(user))
+    access_token, refresh_token = _create_tokens_for_user(
+        db=db,
+        user_id=user.id,
+        request=request,
+    )
+    return _build_auth_response(response=response, access_token=access_token, refresh_token=refresh_token, user=user)
+
+
+@router.post("/refresh", response_model=TokenRefreshResponse)
+def refresh_tokens(
+    request: Request,
+    response: Response,
+    db: DBSession,
+    payload: RefreshTokenRequest | None = None,
+) -> TokenRefreshResponse:
+    raw_refresh_token = _extract_refresh_token(payload=payload, request=request)
+    if not raw_refresh_token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh токен отсутствует")
+
+    try:
+        token_payload = decode_refresh_token(raw_refresh_token)
+    except TokenError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Некорректный refresh токен") from exc
+
+    user_id = int(token_payload.get("sub") or 0)
+    session_id = str(token_payload.get("sid") or "")
+    if user_id <= 0 or not session_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Некорректный refresh токен")
+
+    session = db.get(UserSession, session_id)
+    now = datetime.now(timezone.utc)
+    if (
+        not session
+        or session.user_id != user_id
+        or session.revoked_at is not None
+        or session.expires_at <= now
+        or session.refresh_token_hash != hash_refresh_token(raw_refresh_token)
+    ):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Сессия неактивна, войдите снова")
+
+    session.last_used_at = now
+    new_refresh_token = create_refresh_token(user_id, session.id, expires_delta=timedelta(days=settings.refresh_token_expire_days))
+    session.refresh_token_hash = hash_refresh_token(new_refresh_token)
+    session.expires_at = now + timedelta(days=settings.refresh_token_expire_days)
+    session.user_agent = request.headers.get("user-agent") or session.user_agent
+    session.ip_address = _extract_client_ip(request)
+
+    access_token = create_access_token(user_id, session_id=session.id)
+    db.commit()
+
+    if settings.use_http_only_refresh_cookie:
+        _set_refresh_cookie(response, new_refresh_token)
+        return TokenRefreshResponse(access_token=access_token, refresh_token=None)
+
+    return TokenRefreshResponse(access_token=access_token, refresh_token=new_refresh_token)
 
 
 def _build_user_response(user: User) -> UserResponse:
@@ -90,3 +167,71 @@ def _build_user_response(user: User) -> UserResponse:
         direction=direction,
         group_id=group_id,
     )
+
+
+def _create_tokens_for_user(*, db: DBSession, user_id: int, request: Request) -> tuple[str, str]:
+    now = datetime.now(timezone.utc)
+    session_id = str(uuid4())
+    refresh_expires = now + timedelta(days=settings.refresh_token_expire_days)
+    refresh_token = create_refresh_token(user_id, session_id, expires_delta=timedelta(days=settings.refresh_token_expire_days))
+
+    session = UserSession(
+        id=session_id,
+        user_id=user_id,
+        refresh_token_hash=hash_refresh_token(refresh_token),
+        user_agent=request.headers.get("user-agent"),
+        ip_address=_extract_client_ip(request),
+        created_at=now,
+        last_used_at=now,
+        expires_at=refresh_expires,
+    )
+    db.add(session)
+    db.execute(
+        delete(UserSession).where(
+            UserSession.user_id == user_id,
+            UserSession.expires_at < now,
+        )
+    )
+    db.commit()
+
+    access_token = create_access_token(user_id, session_id=session_id)
+    return access_token, refresh_token
+
+
+def _build_auth_response(*, response: Response, access_token: str, refresh_token: str, user: User) -> AuthResponse:
+    if settings.use_http_only_refresh_cookie:
+        _set_refresh_cookie(response, refresh_token)
+        response_refresh_token: str | None = None
+    else:
+        response_refresh_token = refresh_token
+    return AuthResponse(
+        access_token=access_token,
+        refresh_token=response_refresh_token,
+        user=_build_user_response(user),
+    )
+
+
+def _extract_refresh_token(*, payload: RefreshTokenRequest | None, request: Request) -> str | None:
+    body_token = payload.refresh_token if payload else None
+    cookie_token = request.cookies.get(settings.refresh_cookie_name)
+    return body_token or cookie_token
+
+
+def _set_refresh_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        key=settings.refresh_cookie_name,
+        value=token,
+        httponly=True,
+        secure=settings.app_env.lower() == "production",
+        samesite="lax",
+        max_age=settings.refresh_token_expire_days * 24 * 60 * 60,
+    )
+
+
+def _extract_client_ip(request: Request) -> str | None:
+    forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+    if forwarded:
+        return forwarded
+    if request.client:
+        return request.client.host
+    return None

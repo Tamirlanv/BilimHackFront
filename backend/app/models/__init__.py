@@ -16,6 +16,7 @@ from app.models.entities import (
     TestSession,
     TestMode,
     User,
+    UserSession,
     UserRole,
 )
 
@@ -37,5 +38,6 @@ __all__ = [
     "TestSession",
     "TestMode",
     "User",
+    "UserSession",
     "UserRole",
 ]

@@ -8,11 +8,10 @@ from dataclasses import dataclass
 from difflib import SequenceMatcher
 from typing import Any
 
-import httpx
-
 from app.core.config import settings
 from app.models import Question, QuestionType
 from app.schemas.tests import QuestionFeedback
+from app.services.llm import LLMProviderError, llm_chat
 
 logger = logging.getLogger(__name__)
 
@@ -499,7 +498,6 @@ def _evaluate_with_semantic_ai(
     reference_text: str,
     keywords: list[str],
 ) -> SemanticVerdict | None:
-    endpoint = f"{settings.deepseek_base_url.rstrip('/')}/chat/completions"
     prompt = f"""
 Оцени ответ студента в формате строгого JSON без markdown:
 {{
@@ -523,29 +521,18 @@ def _evaluate_with_semantic_ai(
 Ответ студента: {student_text}
 """.strip()
 
-    payload = {
-        "model": settings.deepseek_model,
-        "messages": [
-            {"role": "system", "content": "You are an accurate educational evaluator. Return strict JSON only."},
-            {"role": "user", "content": prompt},
-        ],
-        "temperature": 0.0,
-    }
-    headers = {
-        "Authorization": f"Bearer {settings.deepseek_api_key}",
-        "Content-Type": "application/json",
-    }
-
     try:
-        with httpx.Client(timeout=12) as client:
-            response = client.post(endpoint, headers=headers, json=payload)
-            response.raise_for_status()
-            content = response.json()["choices"][0]["message"]["content"]
+        content = llm_chat(
+            system_prompt="You are an accurate educational evaluator. Return strict JSON only.",
+            user_prompt=prompt,
+            temperature=0.0,
+            timeout_seconds=12,
+        )
         parsed = _extract_json_object(content)
         score = _clamp(float(parsed.get("score", 0.0)))
         is_correct = bool(parsed.get("is_correct", False))
         return SemanticVerdict(score=score, is_correct=is_correct)
-    except Exception as exc:  # noqa: BLE001
+    except (LLMProviderError, Exception) as exc:  # noqa: BLE001
         logger.warning("Semantic AI grading failed, fallback to heuristic: %s", exc)
         return None
 

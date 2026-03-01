@@ -287,22 +287,16 @@ export default function TestSetupPage() {
     if (!isSettingsModalOpen && !isExamModalOpen) return;
 
     const previousOverflow = document.body.style.overflow;
-    const previousPaddingRight = document.body.style.paddingRight;
-    const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || loading) return;
       closeAllModals();
     };
 
     document.body.style.overflow = "hidden";
-    if (scrollbarWidth > 0) {
-      document.body.style.paddingRight = `${scrollbarWidth}px`;
-    }
     document.addEventListener("keydown", onKeyDown);
 
     return () => {
       document.body.style.overflow = previousOverflow;
-      document.body.style.paddingRight = previousPaddingRight;
       document.removeEventListener("keydown", onKeyDown);
     };
   }, [isSettingsModalOpen, isExamModalOpen, loading]);

@@ -9,11 +9,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
-import httpx
-
 from app.core.config import settings
 from app.models import DifficultyLevel, PreferredLanguage, QuestionType, Subject, TestMode
 from app.schemas.tests import GeneratedQuestionPayload, GeneratedTestPayload
+from app.services.llm import LLMProviderError, llm_chat
 from app.services.question_bank import _pick, get_distractors, get_text_question_templates
 
 logger = logging.getLogger(__name__)
@@ -714,26 +713,15 @@ Seed уникальности: {seed}
         return RecommendationPayload(advice_text=data.get("advice_text", ""), generated_tasks=tasks)
 
     def _call_deepseek(self, prompt: str) -> str:
-        endpoint = f"{settings.deepseek_base_url.rstrip('/')}/chat/completions"
-        headers = {
-            "Authorization": f"Bearer {settings.deepseek_api_key}",
-            "Content-Type": "application/json",
-        }
-        payload = {
-            "model": settings.deepseek_model,
-            "messages": [
-                {"role": "system", "content": "You are a strict JSON generator for exam platforms."},
-                {"role": "user", "content": prompt},
-            ],
-            "temperature": 0.9,
-        }
-
-        with httpx.Client(timeout=30) as client:
-            response = client.post(endpoint, headers=headers, json=payload)
-            response.raise_for_status()
-            data = response.json()
-
-        return data["choices"][0]["message"]["content"]
+        try:
+            return llm_chat(
+                system_prompt="You are a strict JSON generator for exam platforms.",
+                user_prompt=prompt,
+                temperature=0.9,
+                timeout_seconds=30,
+            )
+        except LLMProviderError:
+            raise
 
     @staticmethod
     def _extract_json(content: str) -> dict:

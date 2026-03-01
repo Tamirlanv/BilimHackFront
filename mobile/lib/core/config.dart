@@ -13,7 +13,7 @@ class AppConfig {
   // Optional API prefix if backend enables one, e.g. /api/v1
   static const String apiPrefix = String.fromEnvironment(
     'API_PREFIX',
-    defaultValue: '',
+    defaultValue: '/api/v1',
   );
 
   static String buildUrl(String path) {

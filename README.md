@@ -4,11 +4,14 @@ OKU — персонализированная система экзаменов
 
 
 ## Stack
-- Backend: FastAPI + SQLAlchemy + JWT
+- Backend: FastAPI + SQLAlchemy + Alembic + JWT (access/refresh)
 - DB: PostgreSQL
+- Cache/Queue: Redis + RQ worker
 - Frontend: Next.js 14 (responsive)
 - AI: `mock` или DeepSeek (`deepseek-chat`)
 - STT/TTS: `auto` (бесплатный `edge-tts`) или ElevenLabs
+- Observability: JSON logs + Prometheus `/metrics` + optional Sentry
+- Deploy: Docker Compose + Caddy (HTTPS, Let's Encrypt)
 
 ## E2E поток
 1. Регистрация/логин (`student` / `teacher`)
@@ -18,6 +21,92 @@ OKU — персонализированная система экзаменов
 5. Submit + проверка (`strict` для choice, `fuzzy` для short/oral)
 6. Ошибки + объяснения + weak topics + 5 доп. заданий
 7. История, прогресс, teacher analytics
+
+## Docker Compose deploy (frontend + backend + db + domain)
+
+В репозитории есть готовый `docker-compose.yml`:
+- `db` (PostgreSQL 16)
+- `redis` (cache + queue)
+- `backend` (FastAPI)
+- `worker` (RQ)
+- `frontend` (Next.js production build)
+- `proxy` (Caddy с авто HTTPS)
+
+### 1) DNS для домена `oku.com.kz`
+У регистратора домена добавь A-записи на IP сервера:
+- `oku.com.kz` -> `<SERVER_IP>`
+- `www.oku.com.kz` -> `<SERVER_IP>`
+- `api.oku.com.kz` -> `<SERVER_IP>`
+
+Открой на сервере порты `80` и `443`.
+
+### 2) Обнови `.env` под production
+Минимально проверь/добавь:
+
+```dotenv
+# Domain
+APP_DOMAIN=oku.com.kz
+API_DOMAIN=api.oku.com.kz
+LETSENCRYPT_EMAIL=admin@oku.com.kz
+PUBLIC_API_URL=https://api.oku.com.kz
+PUBLIC_API_PREFIX=/api/v1
+BACKEND_CORS_ORIGINS=https://oku.com.kz,https://www.oku.com.kz
+
+# Security
+JWT_SECRET_KEY=<strong-random-secret-32+>
+JWT_REFRESH_SECRET_KEY=<strong-random-refresh-secret-32+>
+API_PREFIX=/api/v1
+ENABLE_LEGACY_ROUTES=true
+
+# Database (внутри compose подставится автоматически)
+POSTGRES_DB=oku
+POSTGRES_USER=oku
+POSTGRES_PASSWORD=<strong-db-password>
+
+# Redis
+REDIS_URL=redis://redis:6379/0
+REDIS_ENABLED=true
+
+# Observability (optional)
+SENTRY_DSN=
+METRICS_ENABLED=true
+OTEL_ENABLED=false
+OTEL_SERVICE_NAME=oku-backend
+OTEL_EXPORTER_OTLP_ENDPOINT=
+
+# AI
+AI_PROVIDER=deepseek
+DEEPSEEK_API_KEY=<your-deepseek-key>
+
+# Recommended for prod
+PROD_SEED_DEMO_DATA=false
+```
+
+`DATABASE_URL` вручную для Docker указывать не нужно: compose подставляет контейнер БД автоматически.
+
+### 3) Запуск
+```bash
+docker compose up -d --build
+```
+
+Проверка:
+- `https://oku.com.kz`
+- `https://api.oku.com.kz/docs`
+
+Полезные команды:
+```bash
+docker compose logs -f --tail=150
+docker compose ps
+docker compose down
+```
+
+### 4) Если сертификат не выдан
+- Проверь, что DNS уже резолвится в IP сервера.
+- Убедись, что 80/443 доступны извне.
+- Проверь логи прокси:
+```bash
+docker compose logs proxy
+```
 
 ## Локальный запуск без Docker
 
@@ -60,7 +149,11 @@ make setup
 ```bash
 make backend
 ```
-API будет доступен на `http://localhost:8000`, docs: `http://localhost:8000/docs`.
+Скрипт автоматически применяет миграции Alembic (`alembic upgrade head`) и запускает API.  
+API доступен на:
+- versioned: `http://localhost:8000/api/v1`
+- legacy: `http://localhost:8000` (временно для обратной совместимости)
+- docs: `http://localhost:8000/docs`
 
 ### 6) Запуск frontend
 В отдельном терминале:
@@ -88,6 +181,7 @@ psql "postgresql://oku:oku@localhost:5432/oku" -c "SELECT current_user, current_
 cd /Users/mellennial/Programming/KOMA/oku
 ./scripts/start_backend_prod.sh
 ```
+Скрипт применяет миграции перед запуском.
 
 ### Frontend
 ```bash
@@ -99,16 +193,20 @@ cd /Users/mellennial/Programming/KOMA/oku
 ## Sourcecraft deploy (без Docker)
 Подробная инструкция: [docs/sourcecraft_deploy.md](docs/sourcecraft_deploy.md)
 
+## Engineering workflow
+Рекомендованный прод-процесс: [docs/engineering_workflow.md](docs/engineering_workflow.md)
+
 Коротко:
 - Backend service:
   - Workdir: `backend`
   - Build: `pip install -r requirements.txt`
-  - Start: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+  - Start: `alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT`
 - Frontend service:
   - Workdir: `frontend`
   - Build: `npm ci && npm run build`
   - Start: `npm run start`
 - `NEXT_PUBLIC_API_URL` должен указывать на URL backend
+- `NEXT_PUBLIC_API_PREFIX=/api/v1`
 - На production выстави `SEED_DEMO_DATA=false`
 
 ## Demo аккаунты
@@ -117,33 +215,37 @@ cd /Users/mellennial/Programming/KOMA/oku
 - Student KZ: `student2@oku.local` / `student123`
 
 ## Основные API endpoints
-- `POST /auth/register`
-- `POST /auth/login`
-- `GET /subjects`
-- `POST /tests/generate`
-- `GET /tests/{id}`
-- `POST /tests/{id}/submit`
-- `GET /tests/{id}/questions/{question_id}/tts`
-- `GET /tests/{id}/result`
-- `POST /tests/{id}/recommendations/regenerate`
-- `GET /students/me/history`
-- `GET /students/me/progress`
-- `GET /teacher/groups/{id}/analytics`
-- `GET /teacher/groups/{id}/weak-topics`
-- `GET /teacher/students/{id}/progress`
+- Базовый префикс: `/api/v1`
+- `POST /api/v1/auth/register`
+- `POST /api/v1/auth/login`
+- `POST /api/v1/auth/refresh`
+- `GET /api/v1/subjects`
+- `POST /api/v1/tests/generate`
+- `GET /api/v1/tests/{id}`
+- `POST /api/v1/tests/{id}/submit`
+- `GET /api/v1/tests/{id}/questions/{question_id}/tts`
+- `GET /api/v1/tests/{id}/result`
+- `POST /api/v1/tests/{id}/recommendations/regenerate`
+- `GET /api/v1/students/me/history`
+- `GET /api/v1/students/me/progress`
+- `GET /api/v1/students/me/dashboard` (объединенный endpoint для быстрой загрузки главной)
+- `GET /api/v1/teacher/groups/{id}/analytics`
+- `GET /api/v1/teacher/groups/{id}/weak-topics`
+- `GET /api/v1/teacher/students/{id}/progress`
+- `POST /api/v1/jobs/ping` + `GET /api/v1/jobs/{job_id}` (worker health/check)
 
 ## Примеры API запросов
 
 ### Login
 ```bash
-curl -X POST http://localhost:8000/auth/login \
+curl -X POST http://localhost:8000/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email":"student1@oku.local","password":"student123"}'
 ```
 
 ### Generate test
 ```bash
-curl -X POST http://localhost:8000/tests/generate \
+curl -X POST http://localhost:8000/api/v1/tests/generate \
   -H "Authorization: Bearer <TOKEN>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -157,7 +259,7 @@ curl -X POST http://localhost:8000/tests/generate \
 
 ### Submit test
 ```bash
-curl -X POST http://localhost:8000/tests/5/submit \
+curl -X POST http://localhost:8000/api/v1/tests/5/submit \
   -H "Authorization: Bearer <TOKEN>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -170,17 +272,26 @@ curl -X POST http://localhost:8000/tests/5/submit \
 ```
 
 ## Что уже прод-ориентировано
-- Централизованный env (`.env`)
-- Разделение ролей student/teacher
-- API контракты готовы для web + Flutter
-- AI provider abstraction (`mock`/DeepSeek)
-- STT/TTS abstraction слой
+- Alembic миграции вместо runtime `create_all/ALTER`
+- Versioned API `/api/v1` + временная backward совместимость
+- JWT access/refresh + server-side `user_sessions`
+- Redis cache (subjects/progress/history) + базовый rate limiting middleware
+- Локальный кэш на frontend (localStorage TTL) для ускорения загрузки после входа
+- Базовая observability: JSON logs, `/metrics`, optional Sentry
+- Контракт-first поток: экспорт OpenAPI + скрипты генерации SDK
 
 ## Что усилить до полноценного production
-- Alembic миграции вместо `create_all`
-- Refresh token + rotation
-- Rate limit + audit log + retries/queue для AI задач
-- Мониторинг/трейсинг (Sentry + metrics)
+- Перевести heavy AI операции (`generate/evaluate/recommend/TTS`) полностью в async queue pipeline
+- Добавить интеграционные/нагрузочные тесты и CI quality gates
+- Включить полноценный OpenTelemetry tracing
+- Добавить feature flags и staging rollout policy
+- Формализовать data governance (PII policy, retention, backup/restore drills)
+
+## Контракт-first команды
+```bash
+make openapi          # экспорт contracts/openapi.json
+make sdk              # генерация TS + Dart SDK (requires Docker for Dart generator)
+```
 
 ## Flutter клиент
 См. [docs/flutter_client.md](docs/flutter_client.md).

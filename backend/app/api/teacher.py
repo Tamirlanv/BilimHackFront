@@ -12,6 +12,7 @@ from app.models import (
     PreferredLanguage,
     StudentProfile,
     User,
+    UserSession,
     UserRole,
 )
 from app.schemas.groups import (
@@ -156,6 +157,18 @@ def group_members(
     for membership in memberships:
         student = membership.student
         progress = build_student_progress(db, student.id)
+        history = build_student_history(db, student.id)
+        last_test_activity = history[0].created_at if history else None
+        last_session_activity = db.scalar(
+            select(func.max(UserSession.last_used_at)).where(
+                UserSession.user_id == student.id,
+                UserSession.revoked_at.is_(None),
+            )
+        )
+        if last_test_activity and last_session_activity:
+            last_activity = max(last_test_activity, last_session_activity)
+        else:
+            last_activity = last_test_activity or last_session_activity
         members.append(
             GroupMemberResponse(
                 student_id=student.id,
@@ -164,10 +177,39 @@ def group_members(
                 tests_count=progress.total_tests,
                 avg_percent=progress.avg_percent,
                 warnings_count=progress.total_warnings,
+                weak_topic=(progress.weak_topics[0] if progress.weak_topics else None),
+                last_activity_at=last_activity,
             )
         )
 
     return GroupMembersResponse(id=group.id, name=group.name, members=members)
+
+
+@router.delete("/groups/{group_id}/members/{student_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_group_member(
+    group_id: int,
+    student_id: int,
+    db: DBSession,
+    current_user: User = Depends(require_role(UserRole.teacher)),
+) -> None:
+    _get_teacher_group(db=db, teacher_id=current_user.id, group_id=group_id)
+
+    membership = db.scalar(
+        select(GroupMembership).where(
+            GroupMembership.group_id == group_id,
+            GroupMembership.student_id == student_id,
+        )
+    )
+    if not membership:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ученик не состоит в этой группе")
+
+    db.delete(membership)
+
+    profile = db.get(StudentProfile, student_id)
+    if profile and profile.group_id == group_id:
+        profile.group_id = None
+
+    db.commit()
 
 
 @router.post("/invitations", response_model=TeacherInvitationResponse)
@@ -181,8 +223,15 @@ def send_invitation(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Введите username ученика")
 
     student = db.scalar(select(User).where(func.lower(User.username) == username.lower()))
-    if not student or student.role != UserRole.student:
+    if not student:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ученик с таким username не найден")
+    if student.role in {UserRole.teacher}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Нельзя отправлять приглашение аккаунтам с ролью teacher/admin.",
+        )
+    if student.role != UserRole.student:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Приглашать можно только учеников.")
 
     target_group = None
     if payload.group_id is not None:
@@ -242,6 +291,30 @@ def my_invitations(
         .order_by(GroupInvitation.created_at.desc())
     ).all()
     return [_serialize_invitation(item) for item in invitations]
+
+
+@router.delete("/invitations/{invitation_id}", status_code=status.HTTP_204_NO_CONTENT)
+def cancel_invitation(
+    invitation_id: int,
+    db: DBSession,
+    current_user: User = Depends(require_role(UserRole.teacher)),
+) -> None:
+    invitation = db.scalar(
+        select(GroupInvitation).where(
+            GroupInvitation.id == invitation_id,
+            GroupInvitation.teacher_id == current_user.id,
+        )
+    )
+    if not invitation:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Приглашение не найдено")
+    if invitation.status != InvitationStatus.pending:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Можно отменять только активные (ожидающие) приглашения.",
+        )
+
+    db.delete(invitation)
+    db.commit()
 
 
 @router.get("/groups/{group_id}/analytics", response_model=GroupAnalyticsResponse)

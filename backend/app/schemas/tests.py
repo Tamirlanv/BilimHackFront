@@ -177,3 +177,8 @@ class StudentProgressResponse(BaseModel):
     weak_topics: list[str]
     trend: list[ProgressPoint]
     subject_stats: list[SubjectStat]
+
+
+class StudentDashboardResponse(BaseModel):
+    progress: StudentProgressResponse
+    history: list[HistoryItemResponse]

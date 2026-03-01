@@ -30,27 +30,22 @@ const MODE_ITEMS = [
   },
 ];
 
-const SUBJECT_ITEMS = [
+const TEACHER_TAGS = [
   {
-    title: "Математика",
-    title_kz: "Математика",
-    text: "Математика для средних классов",
-    text_kz: "Орта сыныптарға арналған математика",
-    icon: assetPaths.icons.math,
+    ru: "Создавайте группы и приглашайте учеников",
+    kz: "Топтар құрып, оқушыларды шақырыңыз",
   },
   {
-    title: "Алгебра",
-    title_kz: "Алгебра",
-    text: "Математика для старших классов",
-    text_kz: "Жоғары сыныптарға арналған математика",
-    icon: assetPaths.icons.algebra,
+    ru: "Детальная аналитика",
+    kz: "Толық аналитика",
   },
   {
-    title: "Геометрия",
-    title_kz: "Геометрия",
-    text: "Материал для старших классов",
-    text_kz: "Жоғары сыныптарға арналған материал",
-    icon: assetPaths.icons.geometry,
+    ru: "Контролируйте класс по метрикам",
+    kz: "Сыныпты метрикалар арқылы бақылаңыз",
+  },
+  {
+    ru: "Создание материала",
+    kz: "Материал жасау",
   },
 ];
 
@@ -63,19 +58,20 @@ export default function LandingPage() {
     title: t(item.title, item.title_kz),
     text: t(item.text, item.text_kz),
   }));
-  const subjectItems = SUBJECT_ITEMS.map((item) => ({
-    ...item,
-    title: t(item.title, item.title_kz),
-    text: t(item.text, item.text_kz),
-  }));
+  const teacherTags = TEACHER_TAGS.map((item) => t(item.ru, item.kz));
 
   return (
     <div className={styles.page}>
       <main className={styles.main}>
         <section className={styles.hero}>
           <img alt="OKU" className={styles.heroLogo} src={assetPaths.logo.svg} />
-          <h1 className={styles.heroTitle}>OKU</h1>
-          <p className={styles.heroSubtitle}>{t("Единая платформа превращающая тестирование в инструмент обучения", "Тестілеуді оқу құралына айналдыратын бірыңғай платформа")}</p>
+          <h1 className={styles.heroBrand}>OKU</h1>
+          <p className={styles.heroText}>
+            {t(
+              "Единая платформа превращающая тестирование в инструмент обучения",
+              "Тестілеуді оқу құралына айналдыратын бірыңғай платформа",
+            )}
+          </p>
           <div className={styles.heroActions}>
             <Link className={styles.ctaPrimary} href="/register">
               {t("Регистрация", "Тіркелу")}
@@ -87,117 +83,94 @@ export default function LandingPage() {
         </section>
 
         <section className={styles.section}>
-          <header className={styles.sectionHeaderCentered}>
-            <h2 className={styles.projectTitle}>{t("Про проект", "Жоба туралы")}</h2>
-            <p className={styles.projectSubtitle}>{t("Поможет понять то, на что способен проект OKU", "OKU жобасының мүмкіндіктерін түсінуге көмектеседі")}</p>
+          <header className={styles.sectionHeader}>
+            <h2 className={styles.sectionTitle}>{t("Про проект", "Жоба туралы")}</h2>
+            <p className={styles.sectionText}>{t("Поможет понять то, на что способен проект OKU", "OKU жобасының мүмкіндіктерін түсінуге көмектеседі")}</p>
           </header>
 
-          <div className={styles.goalRow}>
-            <article className={styles.goalBlock}>
-              <h3 className={styles.goalTitle}>{t("ЦЕЛЬ", "МАҚСАТ")}</h3>
-              <p className={styles.goalText}>
+          <article className={styles.goalCard}>
+            <img className={styles.goalImage} src={assetPaths.illustrations.landingBooks} alt="" aria-hidden="true" />
+            <div className={styles.goalBody}>
+              <h3 className={styles.displayTitle}>{t("ЦЕЛЬ", "МАҚСАТ")}</h3>
+              <p className={styles.displayTextOnColor}>
                 {t(
                   "Сформировать у студентов и педагогов практическую ИИ-грамотность как ключевую компетенцию XXI века",
                   "Студенттер мен педагогтарда XXI ғасырдың негізгі құзыреті ретінде практикалық ЖИ-сауаттылықты қалыптастыру",
                 )}
               </p>
-            </article>
-
-            <article className={styles.qrBlock}>
-              <img alt="QR OKU bot" className={styles.qrImage} src={assetPaths.images.qrOku} />
-              <a className={styles.qrButton} href="https://t.me/KOMA_OKU_bot" rel="noreferrer" target="_blank">
-                {t("Перейти в OKU", "OKU-ға өту")}
-              </a>
-            </article>
-          </div>
+            </div>
+          </article>
         </section>
 
         <section className={styles.section}>
-          <header className={styles.sectionHeaderCentered}>
+          <header className={styles.sectionHeader}>
             <h2 className={styles.sectionTitle}>{t("Режим прохождения", "Өту режимі")}</h2>
-            <p className={styles.sectionSubtitle}>{t("Формат в которых возможно сдавать тесты", "Тест тапсыруға болатын форматтар")}</p>
+            <p className={styles.sectionText}>{t("Формат в которых возможно сдавать тесты", "Тест тапсыруға болатын форматтар")}</p>
           </header>
 
-          <div className={styles.modeGrid}>
+          <div className={styles.modesGrid}>
             {modeItems.map((item) => (
               <article className={styles.modeItem} key={item.title}>
-                <img alt={item.title} className={styles.modeIcon} src={item.icon} />
-                <div className={styles.modeBody}>
-                  <h3 className={styles.modeTitle}>{item.title}</h3>
-                  <p className={styles.modeText}>{item.text}</p>
-                </div>
+                <img alt="" aria-hidden="true" className={styles.modeIcon} src={item.icon} />
+                <h3 className={styles.modeTitle}>{item.title}</h3>
+                <p className={styles.modeText}>{item.text}</p>
               </article>
             ))}
           </div>
         </section>
 
         <section className={styles.section}>
-          <header className={styles.sectionHeaderCentered}>
-            <h2 className={styles.sectionTitle}>{t("Общеобразовательные предметы", "Жалпы білім беру пәндері")}</h2>
-            <p className={styles.sectionSubtitle}>{t("Сначала определите предмет, затем настройте параметры теста.", "Алдымен пәнді таңдаңыз, содан кейін тест параметрлерін баптаңыз.")}</p>
-          </header>
-
-          <div className={styles.subjectGrid}>
-            {subjectItems.map((item) => (
-              <article className={styles.subjectItem} key={item.title}>
-                <img alt={item.title} className={styles.subjectIcon} src={item.icon} />
-                <div>
-                  <h3 className={styles.subjectTitle}>{item.title}</h3>
-                  <p className={styles.subjectText}>{item.text}</p>
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        <section className={styles.section}>
-          <header className={styles.sectionHeaderCentered}>
-            <h2 className={styles.sectionTitle}>{t("Подготовка к важному", "Маңыздысына дайындық")}</h2>
-            <p className={styles.sectionSubtitle}>{t("Подготовка под самые популярные направления", "Ең танымал бағыттарға дайындық")}</p>
-          </header>
-
-          <div className={styles.examGrid}>
-            <article className={styles.examItem}>
-              <img alt="ЕНТ" className={styles.examIcon} src={assetPaths.icons.ent} />
-              <div>
-                <h3 className={styles.examTitle}>ЕНТ</h3>
-                <p className={styles.examText}>{t("Единое национальное тестирование", "Бірыңғай ұлттық тестілеу")}</p>
-              </div>
-            </article>
-
-            <article className={styles.examItem}>
-              <img alt="IELTS" className={styles.examIcon} src={assetPaths.icons.ielts} />
-              <div>
-                <h3 className={styles.examTitle}>IELTS</h3>
-                <p className={styles.examText}>{t("Международная система тестирования по английскому языку", "Ағылшын тілінен халықаралық тестілеу жүйесі")}</p>
-              </div>
-            </article>
-          </div>
-        </section>
-
-        <section className={styles.section}>
-          <div className={styles.goalRow}>
-            <article className={styles.goalBlock}>
-              <h3 className={styles.goalTitle}>FAQ</h3>
-              <p className={styles.goalText}>
+          <div className={styles.featureRow}>
+            <div className={styles.featureTextBlock}>
+              <h2 className={styles.displayTitleColor}>
+                {t("Общеобразовательные", "Жалпы білім беру")}
+                <br />
+                {t("предметы", "пәндері")}
+              </h2>
+              <p className={styles.featureText}>
                 {t(
-                  "Получите ответ на все интересующие вас вопросы по проекте и более, мы будем рады на них ответить 24/7",
-                  "Жоба бойынша қызықтырған сұрақтардың жауабын алыңыз, біз 24/7 жауап беруге дайынбыз",
+                  "Мы собрали материалы как для средней, так и для старшей школы. Для каждого предмета доступны разные конфигурации и форматы прохождения, которые можно подстроить под цель. При этом сами тесты и задания формируются с опорой на общепринятую систему школьного образования.",
+                  "Біз орта және жоғары мектепке арналған материалдарды жинадық. Әр пән бойынша мақсатқа сай бейімделетін әртүрлі конфигурация мен өту форматтары бар. Тесттер мен тапсырмалар мектептегі стандартты білім беру жүйесіне сүйеніп құрастырылады.",
                 )}
               </p>
-            </article>
-
-            <article className={styles.qrBlock}>
-              <img alt="QR FAQ bot" className={styles.qrImage} src={assetPaths.images.qrFaq} />
-              <a className={styles.qrButton} href="https://t.me/KOMA_FAQ_bot" rel="noreferrer" target="_blank">
-                {t("Перейти в FAQ", "FAQ-қа өту")}
-              </a>
-            </article>
+            </div>
+            <img className={styles.featureImage} src={assetPaths.illustrations.landingSubjects} alt="" aria-hidden="true" />
           </div>
+        </section>
+
+        <section className={styles.section}>
+          <div className={`${styles.featureRow} ${styles.featureRowReverse}`}>
+            <img className={styles.featureImage} src={assetPaths.illustrations.landingPrep} alt="" aria-hidden="true" />
+            <div className={styles.featureTextBlock}>
+              <h2 className={styles.displayTitleColor}>{t("Подготовка к важному", "Маңыздыға дайындық")}</h2>
+              <p className={styles.featureText}>
+                {t(
+                  "ЕНТ и IELTS — на разных уровнях подготовки, от базового до продвинутого. Задания и тесты формируются по логике официальных требований и структуры экзаменов, поэтому тренировка максимально приближена к реальному формату.",
+                  "ЕНТ және IELTS — базалық деңгейден жоғары деңгейге дейінгі дайындық. Тапсырмалар мен тесттер ресми талаптар мен емтихан құрылымына сай құралады, сондықтан дайындық нақты форматқа барынша жақын.",
+                )}
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section className={styles.section}>
+          <article className={styles.teacherCard}>
+            <div className={styles.teacherBody}>
+              <h2 className={styles.teacherTitle}>{t("Роль преподавателя", "Мұғалім рөлі")}</h2>
+              <div className={styles.teacherTags}>
+                {teacherTags.map((tag) => (
+                  <span className={styles.teacherTag} key={tag}>
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            </div>
+            <img className={styles.teacherImage} src={assetPaths.illustrations.landingTeacher} alt="" aria-hidden="true" />
+          </article>
         </section>
       </main>
 
-      <footer className={styles.footer}>OKU.com</footer>
+      <footer className={styles.footer}>OKU.com.kz</footer>
     </div>
   );
 }

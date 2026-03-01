@@ -12,6 +12,29 @@
   gap: 24px;
 }
 
+.backRow {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.backButton {
+  border: none;
+  background: transparent;
+  color: var(--ink-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0;
+}
+
+.backButton:hover {
+  color: var(--ink-strong);
+}
+
 .primarySection {
   gap: 32px;
 }
@@ -169,6 +192,10 @@
 
   .section {
     gap: 20px;
+  }
+
+  .backButton {
+    font-size: 12px;
   }
 
   .sectionHeaderCentered {

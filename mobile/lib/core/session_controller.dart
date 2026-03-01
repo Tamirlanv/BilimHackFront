@@ -112,6 +112,7 @@ class SessionController extends ChangeNotifier {
     _apiClient.setToken(response.accessToken);
 
     await _authStorage.saveToken(response.accessToken);
+    await _authStorage.saveRefreshToken(response.refreshToken);
     await _authStorage.saveUserJson(jsonEncode(response.user.toJson()));
 
     notifyListeners();

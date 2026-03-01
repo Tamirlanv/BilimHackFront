@@ -1,4 +1,4 @@
-.PHONY: setup backend frontend build-frontend start-backend start-frontend mobile-get mobile-analyze mobile-test mobile-ios-build
+.PHONY: setup backend frontend build-frontend start-backend start-frontend mobile-get mobile-analyze mobile-test mobile-ios-build migrate-backend worker openapi sdk docker-up docker-down docker-logs
 
 setup:
 	./scripts/setup_backend.sh
@@ -16,6 +16,18 @@ build-frontend:
 start-backend:
 	./scripts/start_backend_prod.sh
 
+migrate-backend:
+	cd backend && ../.venv/bin/alembic upgrade head
+
+worker:
+	. .venv/bin/activate && cd backend && rq worker default
+
+openapi:
+	. .venv/bin/activate && python3 scripts/export_openapi.py
+
+sdk: openapi
+	./scripts/generate_sdks.sh
+
 start-frontend:
 	./scripts/start_frontend_prod.sh
 
@@ -30,3 +42,12 @@ mobile-test:
 
 mobile-ios-build:
 	cd mobile && flutter build ios --debug --no-codesign
+
+docker-up:
+	docker compose up -d --build
+
+docker-down:
+	docker compose down
+
+docker-logs:
+	docker compose logs -f --tail=150

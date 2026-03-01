@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import AppShell from "@/components/AppShell";
 import AuthGuard from "@/components/AuthGuard";
 import Button from "@/components/ui/Button";
-import { generateMistakesTest, getHistory, getProgress } from "@/lib/api";
+import { generateMistakesTest, getDashboard } from "@/lib/api";
 import { getToken } from "@/lib/auth";
 import { tr, uiLocale, useUiLanguage } from "@/lib/i18n";
 import { HistoryItem, StudentProgress } from "@/lib/types";
@@ -39,10 +39,10 @@ export default function DashboardPage() {
     const token = getToken();
     if (!token) return;
 
-    Promise.all([getProgress(token), getHistory(token)])
-      .then(([progressData, historyData]) => {
-        setProgress(progressData);
-        setHistory(historyData);
+    getDashboard(token)
+      .then((dashboardData) => {
+        setProgress(dashboardData.progress);
+        setHistory(dashboardData.history);
       })
       .catch((err) => setError(err instanceof Error ? err.message : t("Не удалось загрузить данные главной страницы", "Басты бет деректерін жүктеу мүмкін болмады")))
       .finally(() => setLoading(false));

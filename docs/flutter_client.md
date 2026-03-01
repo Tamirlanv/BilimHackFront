@@ -57,6 +57,7 @@ mobile/lib/
 - `POST /tests/{id}/recommendations/regenerate`
 - `GET /students/me/history`
 - `GET /students/me/progress`
+- `GET /students/me/dashboard`
 - `GET /teacher/groups/{id}/analytics`
 - `GET /teacher/groups/{id}/weak-topics`
 - `GET /teacher/students/{id}/progress`

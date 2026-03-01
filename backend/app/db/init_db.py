@@ -1,9 +1,9 @@
-from sqlalchemy import inspect, select, text
+from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.security import get_password_hash
-from app.db.base import Base
 from app.db.session import engine
 from app.models import Group, GroupMembership, PreferredLanguage, StudentProfile, Subject, User, UserRole
 
@@ -53,9 +53,22 @@ DEMO_USERS = [
 ]
 
 
-def init_db() -> None:
-    Base.metadata.create_all(bind=engine)
-    _ensure_compatible_schema()
+def assert_database_ready() -> None:
+    """
+    Runtime schema mutations are disabled.
+    Schema must be prepared explicitly with Alembic migrations.
+    """
+    try:
+        with Session(engine) as db:
+            db.execute(select(User.id).limit(1))
+    except SQLAlchemyError as exc:
+        raise RuntimeError(
+            "Database schema is not ready. Run migrations first: "
+            "`cd backend && alembic upgrade head`."
+        ) from exc
+
+
+def seed_demo_data_if_enabled() -> None:
     if not settings.seed_demo_data:
         return
 
@@ -63,45 +76,6 @@ def init_db() -> None:
         _seed_subjects(db)
         _seed_demo_users(db)
         db.commit()
-
-
-def _ensure_compatible_schema() -> None:
-    with engine.begin() as connection:
-        inspector = inspect(connection)
-        table_names = set(inspector.get_table_names())
-
-        if "users" in table_names:
-            user_columns = {column["name"] for column in inspector.get_columns("users")}
-            if "full_name" not in user_columns:
-                connection.execute(text("ALTER TABLE users ADD COLUMN full_name VARCHAR(255)"))
-
-        if "student_profiles" in table_names:
-            profile_columns = {column["name"] for column in inspector.get_columns("student_profiles")}
-            if "education_level" not in profile_columns:
-                connection.execute(text("ALTER TABLE student_profiles ADD COLUMN education_level VARCHAR(32)"))
-            if "direction" not in profile_columns:
-                connection.execute(text("ALTER TABLE student_profiles ADD COLUMN direction VARCHAR(255)"))
-
-        if "groups" in table_names:
-            group_columns = {column["name"] for column in inspector.get_columns("groups")}
-            if "teacher_id" not in group_columns:
-                connection.execute(text("ALTER TABLE groups ADD COLUMN teacher_id INTEGER REFERENCES users(id) ON DELETE SET NULL"))
-
-        if "group_invitations" in table_names:
-            invitation_columns = {column["name"] for column in inspector.get_columns("group_invitations")}
-            if "group_id" not in invitation_columns:
-                connection.execute(
-                    text("ALTER TABLE group_invitations ADD COLUMN group_id INTEGER REFERENCES groups(id) ON DELETE SET NULL")
-                )
-
-        if "test_sessions" in table_names:
-            session_columns = {column["name"] for column in inspector.get_columns("test_sessions")}
-            if "warning_limit" not in session_columns:
-                connection.execute(text("ALTER TABLE test_sessions ADD COLUMN warning_limit INTEGER"))
-            if "exam_kind" not in session_columns:
-                connection.execute(text("ALTER TABLE test_sessions ADD COLUMN exam_kind VARCHAR(32)"))
-            if "exam_config_json" not in session_columns:
-                connection.execute(text("ALTER TABLE test_sessions ADD COLUMN exam_config_json JSON"))
 
 
 def _seed_subjects(db: Session) -> None:

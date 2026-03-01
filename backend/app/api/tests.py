@@ -40,11 +40,20 @@ from app.schemas.tests import (
     TestResponse,
     TestResultDetailsResponse,
 )
+from app.services.cache import cache
 from app.services.ai import RecommendationPayload, ai_service
 from app.services.evaluation import evaluate_answers
 from app.services.tts import TTSProviderUnavailableError, TTSServiceError, tts_service
 
 router = APIRouter(prefix="/tests", tags=["tests"])
+
+
+def _invalidate_student_dashboard_cache(student_id: int) -> None:
+    cache.delete_many(
+        f"student:{student_id}:history:v1",
+        f"student:{student_id}:progress:v1",
+        f"student:{student_id}:dashboard:v1",
+    )
 
 
 @router.post("/generate", response_model=TestResponse)
@@ -656,6 +665,7 @@ def submit_test(
     db.add(recommendation)
 
     db.commit()
+    _invalidate_student_dashboard_cache(current_user.id)
 
     return SubmitTestResponse(
         test_id=test.id,
@@ -728,6 +738,7 @@ def regenerate_recommendations(
     test.recommendation.advice_text = generated.advice_text
     test.recommendation.generated_tasks_json = generated.generated_tasks
     db.commit()
+    _invalidate_student_dashboard_cache(current_user.id)
 
     return RecommendationResponse(
         weak_topics=weak_topics,

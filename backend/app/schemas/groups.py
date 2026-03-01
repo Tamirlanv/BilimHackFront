@@ -29,6 +29,8 @@ class GroupMemberResponse(BaseModel):
     tests_count: int
     avg_percent: float
     warnings_count: int
+    weak_topic: str | None = None
+    last_activity_at: datetime | None = None
 
 
 class GroupMembersResponse(BaseModel):

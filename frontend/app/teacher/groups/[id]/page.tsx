@@ -8,13 +8,16 @@ import AppShell from "@/components/AppShell";
 import AuthGuard from "@/components/AuthGuard";
 import Button from "@/components/ui/Button";
 import {
+  cancelTeacherInvitation,
   getTeacherGroupMembers,
   getTeacherInvitations,
+  removeTeacherGroupMember,
   sendTeacherInvitation,
 } from "@/lib/api";
 import { getToken } from "@/lib/auth";
 import { tr, useUiLanguage } from "@/lib/i18n";
 import { TeacherGroupMembers, TeacherInvitation } from "@/lib/types";
+import { assetPaths } from "@/src/assets";
 import styles from "@/app/teacher/groups/[id]/group-detail.module.css";
 
 const MAX_GROUP_MEMBERS = 5;
@@ -44,9 +47,15 @@ export default function TeacherGroupDetailPage() {
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
   const [inviteUsername, setInviteUsername] = useState("");
   const [inviteLoading, setInviteLoading] = useState(false);
+  const [memberToRemove, setMemberToRemove] = useState<{ studentId: number; name: string } | null>(null);
+  const [removeLoading, setRemoveLoading] = useState(false);
+  const [cancelingInvitationId, setCancelingInvitationId] = useState<number | null>(null);
 
   const groupInvitations = useMemo(
-    () => invitations.filter((item) => item.group_id === groupId).slice(0, 8),
+    () =>
+      invitations
+        .filter((item) => item.group_id === groupId && item.status === "pending")
+        .slice(0, 8),
     [groupId, invitations],
   );
   const groupFull = Boolean(group && group.members.length >= MAX_GROUP_MEMBERS);
@@ -120,6 +129,43 @@ export default function TeacherGroupDetailPage() {
     }
   };
 
+  const removeMember = async () => {
+    if (!memberToRemove) return;
+    const token = getToken();
+    if (!token || !Number.isFinite(groupId)) return;
+
+    try {
+      setRemoveLoading(true);
+      setError("");
+      setSuccess("");
+      await removeTeacherGroupMember(token, groupId, memberToRemove.studentId);
+      setSuccess(t("Ученик удален из группы.", "Оқушы топтан шығарылды."));
+      setMemberToRemove(null);
+      await loadData(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("Не удалось удалить ученика", "Оқушыны шығару мүмкін болмады"));
+    } finally {
+      setRemoveLoading(false);
+    }
+  };
+
+  const cancelInvitation = async (invitationId: number) => {
+    const token = getToken();
+    if (!token) return;
+    try {
+      setCancelingInvitationId(invitationId);
+      setError("");
+      setSuccess("");
+      await cancelTeacherInvitation(token, invitationId);
+      setSuccess(t("Приглашение отменено.", "Шақыру жойылды."));
+      await loadData(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("Не удалось отменить приглашение", "Шақыруды жою мүмкін болмады"));
+    } finally {
+      setCancelingInvitationId(null);
+    }
+  };
+
   return (
     <AuthGuard roles={["teacher"]}>
       <AppShell>
@@ -129,8 +175,9 @@ export default function TeacherGroupDetailPage() {
               <h2>{group?.name || t("Группа", "Топ")}</h2>
               <p>{t("Список участников и быстрый переход к аналитике ученика.", "Қатысушылар тізімі және оқушы аналитикасына жылдам өту.")}</p>
             </div>
-            <Button onClick={() => setInviteModalOpen(true)} disabled={groupFull}>
-              {t("Добавить ученика", "Оқушы қосу")}
+            <Button onClick={() => setInviteModalOpen(true)} disabled={groupFull} className={styles.actionButton}>
+              <img className={styles.actionIcon} src={assetPaths.icons.plus} alt="" aria-hidden="true" />
+              <span>{t("Добавить ученика", "Оқушы қосу")}</span>
             </Button>
           </header>
           {group && (
@@ -146,31 +193,53 @@ export default function TeacherGroupDetailPage() {
           {!loading && group && (
             <div className={styles.tableWrap}>
               <table className={styles.table}>
+                <colgroup>
+                  <col className={styles.colName} />
+                  <col className={styles.colScore} />
+                  <col className={styles.colWarnings} />
+                  <col className={styles.colTopic} />
+                  <col className={styles.colActivity} />
+                  <col className={styles.colActions} />
+                </colgroup>
                 <thead>
                   <tr>
-                    <th>{t("Ученик", "Оқушы")}</th>
-                    <th>Username</th>
-                    <th>{t("Тестов", "Тест саны")}</th>
-                    <th>{t("Средний балл", "Орташа ұпай")}</th>
+                    <th>{t("Имя", "Аты")}</th>
+                    <th>{t("Успеваемость", "Үлгерім")}</th>
                     <th>{t("Предупреждения", "Ескертулер")}</th>
-                    <th />
+                    <th>{t("Слабая тема", "Әлсіз тақырып")}</th>
+                    <th>{t("Активность", "Белсенділік")}</th>
+                    <th className={styles.actionColumn} />
                   </tr>
                 </thead>
                 <tbody>
-                  {group.members.map((member) => (
-                    <tr key={member.student_id}>
-                      <td>{member.full_name || member.username}</td>
-                      <td>@{member.username}</td>
-                      <td>{member.tests_count}</td>
-                      <td>{member.avg_percent}%</td>
-                      <td>{member.warnings_count}</td>
+                  {group.members.map((member, index) => (
+                    <tr key={member.student_id} className={styles.memberRow}>
                       <td>
-                        <Button
-                          variant="secondary"
+                        <div className={styles.memberCell}>
+                          <button
+                            type="button"
+                            className={styles.minusBtn}
+                            onClick={() => setMemberToRemove({ studentId: member.student_id, name: member.full_name || member.username })}
+                            aria-label={t("Удалить ученика", "Оқушыны өшіру")}
+                          >
+                            −
+                          </button>
+                          <span className={styles.rowIndex}>{index + 1}</span>
+                          <span>{member.full_name || member.username}</span>
+                        </div>
+                      </td>
+                      <td>{formatPercent(member.avg_percent)}</td>
+                      <td>{member.warnings_count}</td>
+                      <td>{member.weak_topic || "—"}</td>
+                      <td>{formatActivity(member.last_activity_at, uiLanguage)}</td>
+                      <td className={styles.rowActions}>
+                        <button
+                          type="button"
+                          className={styles.openLink}
                           onClick={() => router.push(buildStudentAnalyticsHref(member.student_id, member.full_name || member.username))}
                         >
                           {t("Открыть", "Ашу")}
-                        </Button>
+                        </button>
                       </td>
                     </tr>
                   ))}
@@ -186,16 +255,30 @@ export default function TeacherGroupDetailPage() {
           <section className={styles.invitationSection}>
             <h3>{t("Приглашения в группу", "Топқа шақырулар")}</h3>
             {groupInvitations.length === 0 ? (
-              <p className="muted">{t("Пока приглашений для этой группы нет.", "Бұл топ үшін шақырулар әзірге жоқ.")}</p>
+              <div className={styles.emptyInvitations}>
+                <img src={assetPaths.icons.soon} alt="" aria-hidden="true" />
+                <p>{t("Активных приглашений нет", "Белсенді шақырулар жоқ")}</p>
+              </div>
             ) : (
               <div className={styles.invitationList}>
                 {groupInvitations.map((invitation) => (
                   <article className={styles.invitationCard} key={invitation.id}>
-                    <div>
-                      <h4>{invitation.student_name || invitation.student_username}</h4>
-                      <p>@{invitation.student_username}</p>
+                    <div className={styles.invitationStudent}>
+                      <img className={styles.invitationIcon} src={assetPaths.icons.student} alt={t("Ученик", "Оқушы")} />
+                      <div>
+                        <h4>{invitation.student_name || invitation.student_username}</h4>
+                        <p>{statusLabel(invitation.status, uiLanguage)}</p>
+                      </div>
                     </div>
-                    <span className={`${styles.status} ${styles[invitation.status]}`}>{statusLabel(invitation.status, uiLanguage)}</span>
+                    <button
+                      type="button"
+                      className={styles.invitationMinus}
+                      onClick={() => cancelInvitation(invitation.id)}
+                      disabled={cancelingInvitationId === invitation.id}
+                      aria-label={t("Отменить приглашение", "Шақыруды жою")}
+                    >
+                      {cancelingInvitationId === invitation.id ? "…" : "−"}
+                    </button>
                   </article>
                 ))}
               </div>
@@ -226,10 +309,38 @@ export default function TeacherGroupDetailPage() {
                 />
               </label>
               <div className={styles.modalActions}>
-                <Button onClick={sendInviteToGroup} disabled={inviteLoading}>
+                <Button block onClick={sendInviteToGroup} disabled={inviteLoading}>
                   {inviteLoading ? t("Отправляем...", "Жіберілуде...") : t("Отправить приглашение", "Шақыру жіберу")}
                 </Button>
-                <Button variant="ghost" onClick={() => setInviteModalOpen(false)}>{t("Отмена", "Бас тарту")}</Button>
+                <Button block variant="ghost" onClick={() => setInviteModalOpen(false)}>{t("Отмена", "Бас тарту")}</Button>
+              </div>
+            </section>
+          </div>
+        )}
+
+        {memberToRemove && (
+          <div className={styles.modalOverlay} onClick={() => setMemberToRemove(null)} role="presentation">
+            <section className={styles.modal} onClick={(event) => event.stopPropagation()}>
+              <button
+                type="button"
+                className={styles.close}
+                onClick={() => setMemberToRemove(null)}
+                aria-label={t("Закрыть", "Жабу")}
+              >
+                <X size={16} />
+              </button>
+              <h3>{t("Удаление ученика", "Оқушыны өшіру")}</h3>
+              <p>
+                {t("Удалить ученика из группы?", "Оқушыны топтан өшіру керек пе?")}<br />
+                <b>{memberToRemove.name}</b>
+              </p>
+              <div className={styles.modalActions}>
+                <Button block onClick={removeMember} disabled={removeLoading}>
+                  {removeLoading ? t("Удаляем...", "Өшірілуде...") : t("Удалить", "Өшіру")}
+                </Button>
+                <Button block variant="ghost" onClick={() => setMemberToRemove(null)}>
+                  {t("Отмена", "Бас тарту")}
+                </Button>
               </div>
             </section>
           </div>
@@ -243,4 +354,30 @@ function statusLabel(status: TeacherInvitation["status"], language: "RU" | "KZ")
   if (status === "accepted") return tr(language, "Принято", "Қабылданды");
   if (status === "declined") return tr(language, "Отклонено", "Қабылданбады");
   return tr(language, "Ожидает", "Күтілуде");
+}
+
+function formatPercent(value: number): string {
+  const rounded = Number(value.toFixed(1));
+  return `${rounded}%`;
+}
+
+function formatActivity(value: string | null | undefined, language: "RU" | "KZ"): string {
+  if (!value) {
+    return tr(language, "Нет данных", "Дерек жоқ");
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return tr(language, "Нет данных", "Дерек жоқ");
+  }
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const startOfDate = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const dayMs = 24 * 60 * 60 * 1000;
+  const diffDays = Math.round((startOfToday - startOfDate) / dayMs);
+  if (diffDays <= 0) return tr(language, "Сегодня", "Бүгін");
+  if (diffDays === 1) return tr(language, "Вчера", "Кеше");
+  return date.toLocaleDateString(language === "KZ" ? "kk-KZ" : "ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+  });
 }

@@ -40,6 +40,10 @@ body {
   text-size-adjust: 100%;
 }
 
+html {
+  scrollbar-gutter: stable;
+}
+
 body {
   font-family: var(--font-body);
   letter-spacing: 0.007em;
