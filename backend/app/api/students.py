@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.core.config import settings
 from app.core.deps import DBSession, require_role
@@ -79,7 +79,7 @@ def my_group_tests(db: DBSession, current_user: User = Depends(require_role(User
     tests = db.scalars(
         select(TeacherAuthoredTest)
         .join(TeacherAuthoredTestGroup, TeacherAuthoredTestGroup.test_id == TeacherAuthoredTest.id)
-        .options(joinedload(TeacherAuthoredTest.questions), joinedload(TeacherAuthoredTest.teacher))
+        .options(selectinload(TeacherAuthoredTest.questions), joinedload(TeacherAuthoredTest.teacher))
         .where(TeacherAuthoredTestGroup.group_id == group.id)
         .order_by(TeacherAuthoredTest.created_at.desc())
     ).all()

@@ -20,9 +20,11 @@ import {
 } from "@/lib/types";
 import { getRefreshToken, getUser, updateAccessToken } from "@/lib/auth";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const RAW_API_URL = (process.env.NEXT_PUBLIC_API_URL || "").trim();
 const API_PREFIX = normalizeApiPrefix(process.env.NEXT_PUBLIC_API_PREFIX || "/api/v1");
+const API_URL = resolveApiUrl();
 const API_BASE = `${API_URL}${API_PREFIX}`;
+const API_BASE_FALLBACK = API_PREFIX ? API_URL : null;
 
 const CACHE_NS = "oku_cache";
 const CACHE_TTL = {
@@ -56,12 +58,47 @@ async function apiRequest<T>(
     headers.set("Authorization", `Bearer ${token}`);
   }
 
-  let response = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers,
-    cache: "no-store",
-    credentials: "include",
-  });
+  const performRequest = async (baseUrl: string) =>
+    fetch(`${baseUrl}${path}`, {
+      ...options,
+      headers,
+      cache: "no-store",
+      credentials: "include",
+    });
+
+  const baseCandidates = buildApiBaseCandidates();
+  let currentBaseUrl = baseCandidates[0] ?? API_BASE;
+  let response: Response | null = null;
+  let fallbackHttpResponse: Response | null = null;
+  let lastFetchError: unknown = null;
+
+  for (let index = 0; index < baseCandidates.length; index += 1) {
+    const baseUrl = baseCandidates[index];
+    const hasNextCandidate = index < baseCandidates.length - 1;
+    try {
+      const attempt = await performRequest(baseUrl);
+      if (shouldTryNextCandidate(attempt, hasNextCandidate)) {
+        fallbackHttpResponse = attempt;
+        continue;
+      }
+      response = attempt;
+      currentBaseUrl = baseUrl;
+      break;
+    } catch (error) {
+      lastFetchError = error;
+    }
+  }
+
+  if (!response && fallbackHttpResponse) {
+    response = fallbackHttpResponse;
+  }
+
+  if (!response) {
+    if (lastFetchError instanceof Error && lastFetchError.message.trim()) {
+      throw new Error(lastFetchError.message);
+    }
+    throw new Error("NetworkError when attempting to fetch resource.");
+  }
 
   if (
     response.status === 401 &&
@@ -73,12 +110,7 @@ async function apiRequest<T>(
     const refreshedAccessToken = await tryRefreshToken();
     if (refreshedAccessToken) {
       headers.set("Authorization", `Bearer ${refreshedAccessToken}`);
-      response = await fetch(`${API_BASE}${path}`, {
-        ...options,
-        headers,
-        cache: "no-store",
-        credentials: "include",
-      });
+      response = await performRequest(currentBaseUrl);
     }
   }
 
@@ -297,7 +329,11 @@ async function extractErrorFromResponse(
 
   try {
     const text = (await response.text()).trim();
-    if (text.length > 0) return text;
+    if (text.length === 0) return fallback;
+    if (looksLikeHtmlPayload(text, contentType)) {
+      return fallback;
+    }
+    return text.length > 280 ? `${text.slice(0, 280)}...` : text;
   } catch {
     // ignore parse errors and continue with fallback
   }
@@ -319,20 +355,130 @@ async function tryRefreshToken(): Promise<string | null> {
 async function refreshAccessToken(): Promise<string | null> {
   const refreshToken = getRefreshToken();
 
-  const response = await fetch(`${API_BASE}/auth/refresh`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    credentials: "include",
-    body: refreshToken ? JSON.stringify({ refresh_token: refreshToken }) : undefined,
-  });
+  const requestRefresh = async (baseUrl: string) =>
+    fetch(`${baseUrl}/auth/refresh`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      credentials: "include",
+      body: refreshToken ? JSON.stringify({ refresh_token: refreshToken }) : undefined,
+    });
+
+  const baseCandidates = buildApiBaseCandidates();
+  let response: Response | null = null;
+  for (let index = 0; index < baseCandidates.length; index += 1) {
+    const baseUrl = baseCandidates[index];
+    const hasNextCandidate = index < baseCandidates.length - 1;
+    try {
+      const attempt = await requestRefresh(baseUrl);
+      if (shouldTryNextCandidate(attempt, hasNextCandidate)) {
+        continue;
+      }
+      response = attempt;
+      break;
+    } catch {
+      // try next candidate
+    }
+  }
+  if (!response) return null;
   if (!response.ok) return null;
 
   const payload = (await response.json()) as { access_token?: string; refresh_token?: string | null };
   if (!payload.access_token) return null;
   updateAccessToken(payload.access_token, payload.refresh_token ?? refreshToken ?? null);
   return payload.access_token;
+}
+
+function isLocalHost(hostname: string): boolean {
+  const normalized = hostname.trim().toLowerCase();
+  return normalized === "localhost" || normalized === "127.0.0.1" || normalized === "::1";
+}
+
+function inferApiUrlFromWindow(): string | null {
+  if (typeof window === "undefined") return null;
+  const { protocol, hostname } = window.location;
+  if (!hostname) return null;
+
+  if (hostname.startsWith("api.")) {
+    return `${protocol}//${hostname}`;
+  }
+
+  if (isLocalHost(hostname)) {
+    return `${protocol}//${hostname}:8000`;
+  }
+
+  const baseHostname = hostname.startsWith("www.") ? hostname.slice(4) : hostname;
+  return `${protocol}//api.${baseHostname}`;
+}
+
+function resolveApiUrl(): string {
+  const inferredApiUrl = inferApiUrlFromWindow();
+  if (RAW_API_URL) {
+    try {
+      const parsed = new URL(RAW_API_URL);
+      if (typeof window !== "undefined" && inferredApiUrl) {
+        const browserHost = window.location.hostname;
+        if (isLocalHost(parsed.hostname) && !isLocalHost(browserHost)) {
+          return inferredApiUrl;
+        }
+      }
+    } catch {
+      // keep RAW_API_URL as-is for backward compatibility
+    }
+    return RAW_API_URL;
+  }
+
+  if (inferredApiUrl) {
+    return inferredApiUrl;
+  }
+
+  return "http://localhost:8000";
+}
+
+function buildApiBaseCandidates(): string[] {
+  const inferredApiUrl = inferApiUrlFromWindow();
+  const candidates: string[] = [API_BASE];
+
+  if (inferredApiUrl) {
+    candidates.push(`${inferredApiUrl}${API_PREFIX}`);
+  }
+
+  if (API_BASE_FALLBACK) {
+    candidates.push(API_BASE_FALLBACK);
+  }
+
+  if (inferredApiUrl && API_PREFIX) {
+    candidates.push(inferredApiUrl);
+  }
+
+  if (typeof window !== "undefined" && window.location.origin) {
+    const rawApi = RAW_API_URL.trim();
+    const sameOriginApiRequested = rawApi.startsWith("/");
+    if (sameOriginApiRequested) {
+      const origin = window.location.origin;
+      candidates.push(`${origin}${API_PREFIX}`);
+      if (API_PREFIX) {
+        candidates.push(origin);
+      }
+    }
+  }
+
+  return [...new Set(candidates.filter((value) => value && value.trim().length > 0))];
+}
+
+function shouldTryNextCandidate(response: Response, hasNextCandidate: boolean): boolean {
+  if (!hasNextCandidate) return false;
+  if (response.status === 404) return true;
+  const contentType = (response.headers.get("content-type") || "").toLowerCase();
+  return contentType.includes("text/html");
+}
+
+function looksLikeHtmlPayload(text: string, contentType: string): boolean {
+  const normalizedContentType = contentType.toLowerCase();
+  if (normalizedContentType.includes("text/html")) return true;
+  const probe = text.slice(0, 200).toLowerCase();
+  return probe.includes("<!doctype html") || probe.includes("<html");
 }
 
 export function register(body: {
@@ -430,17 +576,38 @@ export async function getQuestionTtsAudio(token: string, testId: number, questio
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 20000);
 
-  let response: Response;
+  let response: Response | null = null;
   try {
-    response = await fetch(`${API_BASE}/tests/${testId}/questions/${questionId}/tts`, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-      cache: "no-store",
-      credentials: "include",
-      signal: controller.signal,
-    });
+    const baseCandidates = buildApiBaseCandidates();
+    let lastFetchError: unknown = null;
+    for (let index = 0; index < baseCandidates.length; index += 1) {
+      const baseUrl = baseCandidates[index];
+      const hasNextCandidate = index < baseCandidates.length - 1;
+      try {
+        const attempt = await fetch(`${baseUrl}/tests/${testId}/questions/${questionId}/tts`, {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          cache: "no-store",
+          credentials: "include",
+          signal: controller.signal,
+        });
+        if (shouldTryNextCandidate(attempt, hasNextCandidate)) {
+          continue;
+        }
+        response = attempt;
+        break;
+      } catch (error) {
+        lastFetchError = error;
+      }
+    }
+    if (!response) {
+      if (lastFetchError instanceof Error) {
+        throw lastFetchError;
+      }
+      throw new Error("NetworkError when attempting to fetch resource.");
+    }
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
       throw new Error("Превышено время ожидания серверного TTS.");
@@ -451,6 +618,10 @@ export async function getQuestionTtsAudio(token: string, testId: number, questio
     throw new Error("Не удалось выполнить запрос TTS.");
   } finally {
     clearTimeout(timeoutId);
+  }
+
+  if (!response) {
+    throw new Error("Не удалось выполнить запрос TTS.");
   }
 
   if (!response.ok) {
@@ -583,7 +754,12 @@ export function getStudentHistoryByTeacher(token: string, studentId: number) {
   );
 }
 
-export function getTeacherGroups(token: string) {
+export async function getTeacherGroups(token: string, options?: { force?: boolean }) {
+  if (options?.force) {
+    const payload = await apiRequest<TeacherGroup[]>("/teacher/groups", {}, token);
+    writeCachedJson("teacher:groups", payload);
+    return payload;
+  }
   return cachedRequest(
     "teacher:groups",
     CACHE_TTL.teacherGroups,

@@ -37,11 +37,25 @@ export default function MyGroupPage() {
         }
       } catch (requestError) {
         if (!isCancelled) {
-          setError(
-            requestError instanceof Error
-              ? requestError.message
-              : t("Не удалось загрузить тесты группы.", "Топ тесттерін жүктеу мүмкін болмады."),
+          const fallbackText = t(
+            "Не удалось загрузить тесты группы.",
+            "Топ тесттерін жүктеу мүмкін болмады.",
           );
+          if (requestError instanceof Error) {
+            const message = requestError.message.toLowerCase();
+            if (message.includes("networkerror") || message.includes("failed to fetch")) {
+              setError(
+                t(
+                  "Нет соединения с сервером. Проверьте адрес API и CORS-настройки.",
+                  "Серверге қосылу жоқ. API адресін және CORS баптауларын тексеріңіз.",
+                ),
+              );
+            } else {
+              setError(requestError.message);
+            }
+          } else {
+            setError(fallbackText);
+          }
         }
       } finally {
         if (!isCancelled) {

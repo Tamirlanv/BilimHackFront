@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import AliasChoices, Field
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -31,7 +32,10 @@ class Settings(BaseSettings):
     use_http_only_refresh_cookie: bool = False
     refresh_cookie_name: str = "oku_refresh_token"
 
-    cors_origins: str = "http://localhost:3000"
+    cors_origins: str = Field(
+        default="http://localhost:3000",
+        validation_alias=AliasChoices("CORS_ORIGINS", "BACKEND_CORS_ORIGINS"),
+    )
 
     ai_provider: str = "mock"
     deepseek_api_key: str = ""

@@ -9,7 +9,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.core.deps import CurrentUser, DBSession, require_role
 from app.models import (
@@ -147,7 +147,7 @@ def generate_test_from_custom_template(
 
     custom_test = db.scalar(
         select(TeacherAuthoredTest)
-        .options(joinedload(TeacherAuthoredTest.questions))
+        .options(selectinload(TeacherAuthoredTest.questions))
         .join(TeacherAuthoredTestGroup, TeacherAuthoredTestGroup.test_id == TeacherAuthoredTest.id)
         .where(
             TeacherAuthoredTest.id == custom_test_id,

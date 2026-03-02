@@ -246,7 +246,7 @@ export default function TeacherCreateTestPage() {
     (async () => {
       try {
         setLoadingGroups(true);
-        const payload = await getTeacherGroups(token);
+        const payload = await getTeacherGroups(token, { force: true });
         if (cancelled) return;
         setGroups(payload);
       } catch (requestError) {
@@ -336,6 +336,21 @@ export default function TeacherCreateTestPage() {
       return;
     }
 
+    const allowedGroupIds = new Set(groups.map((group) => group.id));
+    const selectedExistingGroupIds = selectedGroupIds.filter((groupId) => allowedGroupIds.has(groupId));
+    if (selectedExistingGroupIds.length !== selectedGroupIds.length) {
+      setSelectedGroupIds(selectedExistingGroupIds);
+    }
+    if (selectedExistingGroupIds.length === 0) {
+      setError(
+        t(
+          "Выбранные группы больше не доступны. Обновите список и выберите группы снова.",
+          "Таңдалған топтар енді қолжетімсіз. Тізімді жаңартып, топтарды қайта таңдаңыз.",
+        ),
+      );
+      return;
+    }
+
     let payloadQuestions: TeacherCustomQuestionInput[];
     try {
       payloadQuestions = buildPayloadQuestions(draft.questions, t);
@@ -350,7 +365,7 @@ export default function TeacherCreateTestPage() {
         title: normalizedTitle,
         duration_minutes: draft.duration_minutes,
         warning_limit: draft.warning_limit,
-        group_ids: selectedGroupIds,
+        group_ids: selectedExistingGroupIds,
         questions: payloadQuestions,
       });
 
