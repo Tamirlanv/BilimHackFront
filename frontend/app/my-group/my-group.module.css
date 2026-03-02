@@ -1,14 +1,17 @@
 .page {
+  width: 100%;
   max-width: 1120px;
   margin: 0 auto;
   display: grid;
   gap: 32px;
   padding-bottom: 24px;
+  min-width: 0;
 }
 
 .section {
   display: grid;
   gap: 20px;
+  min-width: 0;
 }
 
 .sectionHeader {
@@ -38,6 +41,8 @@
   display: grid;
   gap: 14px;
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: 100%;
+  min-width: 0;
 }
 
 .card {

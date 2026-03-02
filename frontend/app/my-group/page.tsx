@@ -31,7 +31,7 @@ export default function MyGroupPage() {
       try {
         setLoading(true);
         setError("");
-        const payload = await getStudentGroupTests(token);
+        const payload = await getStudentGroupTests(token, { force: true });
         if (!isCancelled) {
           setTests(payload);
         }

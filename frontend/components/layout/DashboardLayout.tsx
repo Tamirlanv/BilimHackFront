@@ -116,11 +116,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         icon: <BookOpenCheck size={18} />,
       },
       {
-        href: "/my-group",
-        label: t("Моя группа", "Менің тобым"),
-        icon: <Users size={18} />,
-      },
-      {
         href: "/blitz",
         label: t("Блиц", "Блиц"),
         icon: <Bolt size={18} />,
@@ -134,6 +129,11 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         href: "/progress",
         label: t("Аналитика", "Аналитика"),
         icon: <ChartSpline size={18} />,
+      },
+      {
+        href: "/my-group",
+        label: t("Моя группа", "Менің тобым"),
+        icon: <Users size={18} />,
       },
     ];
   }, [t, user?.role]);

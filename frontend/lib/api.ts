@@ -538,7 +538,12 @@ export function getDashboard(token: string) {
   });
 }
 
-export function getStudentGroupTests(token: string) {
+export async function getStudentGroupTests(token: string, options?: { force?: boolean }) {
+  if (options?.force) {
+    const payload = await apiRequest<GroupAssignedTest[]>("/students/me/group-tests", {}, token);
+    writeCachedJson("student:group-tests", payload);
+    return payload;
+  }
   return cachedRequest(
     "student:group-tests",
     CACHE_TTL.studentGroupTests,

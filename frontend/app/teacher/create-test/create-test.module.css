@@ -5,6 +5,7 @@
   display: grid;
   gap: 32px;
   padding-bottom: 56px;
+  min-width: 0;
 }
 
 .headerGrid {
@@ -17,6 +18,8 @@
 .headerBlock {
   display: grid;
   gap: 8px;
+  justify-items: center;
+  text-align: center;
 }
 
 .title {
@@ -54,6 +57,12 @@
   grid-template-columns: minmax(0, 1.8fr) minmax(320px, 1fr);
   gap: 22px;
   align-items: start;
+}
+
+.topColumn {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
 }
 
 .heroPanel {
@@ -313,6 +322,7 @@
   padding: 20px;
   display: grid;
   gap: 14px;
+  min-width: 0;
 }
 
 .questionHeader {
@@ -326,6 +336,7 @@
   display: flex;
   align-items: center;
   gap: 26px;
+  min-width: 0;
 }
 
 .questionIndex {
@@ -343,6 +354,7 @@
   color: var(--ink-muted);
   font-size: 16px;
   font-weight: 600;
+  min-width: 0;
 }
 
 .typeSelect {
@@ -503,14 +515,17 @@
 }
 
 @media (max-width: 1024px) {
-  .headerGrid,
   .topGrid {
+    grid-template-columns: 1fr;
+    gap: 36px;
+  }
+
+  .heroMetaGrid {
     grid-template-columns: 1fr;
   }
 
-  .heroMetaGrid,
   .heroStats {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .heroActions {
@@ -532,16 +547,17 @@
   .page {
     gap: 20px;
     padding-bottom: 30px;
+    overflow-x: clip;
   }
 
   .title,
   .questionsTitle {
-    font-size: 24px;
+    font-size: 20px;
   }
 
   .subtitle,
   .empty {
-    font-size: 16px;
+    font-size: 14px;
   }
 
   .heroPanel {
@@ -550,8 +566,12 @@
     gap: 12px;
   }
 
+  .topColumn {
+    gap: 10px;
+  }
+
   .heroLabel {
-    font-size: 16px;
+    font-size: 14px;
   }
 
   .heroInput {
@@ -561,41 +581,50 @@
   }
 
   .heroSummaryTitle {
-    font-size: 16px;
+    font-size: 14px;
   }
 
   .statItem span {
-    font-size: 12px;
+    font-size: 14px;
   }
 
   .statItem strong {
-    font-size: 34px;
+    font-size: 24px;
+  }
+
+  .heroActions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
   }
 
   .createButton,
   .clearButton {
     font-size: 14px;
-    height: 40px;
+    height: 38px;
+  }
+
+  .groupsList {
+    gap: 8px;
   }
 
   .groupCard {
-    padding: 14px;
+    padding: 14px 16px;
     border-radius: 14px;
     gap: 10px;
   }
 
   .groupIcon {
-    width: 48px;
-    height: 48px;
-    flex: 0 0 48px;
+    width: 36px;
+    height: 36px;
+    flex: 0 0 36px;
   }
 
   .groupText h3 {
-    font-size: 16px;
+    font-size: 14px;
   }
 
   .groupText p {
-    font-size: 12px;
+    font-size: 14px;
   }
 
   .groupDot {
@@ -618,16 +647,17 @@
   }
 
   .questionIndex {
-    font-size: 16px;
+    font-size: 14px;
   }
 
   .typeLabel,
   .typeSelect {
-    font-size: 16px;
+    font-size: 14px;
+    min-width: 0;
   }
 
   .deleteButton {
-    font-size: 16px;
+    font-size: 14px;
   }
 
   .questionInput {
@@ -647,6 +677,7 @@
 
   .choiceInput {
     font-size: 14px;
+    min-width: 0;
   }
 
   .addOptionButton,

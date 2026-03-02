@@ -377,165 +377,168 @@ export default function TeacherCreateTestPage() {
     <AuthGuard roles={["teacher"]}>
       <AppShell>
         <div className={styles.page}>
-          <div className={styles.headerGrid}>
-            <header className={styles.headerBlock}>
-              <h2 className={styles.title}>{t("Создать тест", "Тест құру")}</h2>
-              <p className={styles.subtitle}>
-                {t(
-                  "Соберите собственный тест: тема, лимиты и вопросы с правильными ответами",
-                  "Өз тестіңізді жасаңыз: тақырып, лимиттер және дұрыс жауаптары бар сұрақтар",
-                )}
-              </p>
-            </header>
-            <header className={styles.headerBlock}>
-              <h2 className={styles.title}>{t("Для групп", "Топтар үшін")}</h2>
-              <p className={styles.subtitle}>
-                {t("Выберите группы, которым хотите добавить этот тест", "Бұл тестті қосқыңыз келетін топтарды таңдаңыз")}
-              </p>
-            </header>
-          </div>
-
           {error && <p className={styles.error}>{error}</p>}
           {success && <p className={styles.success}>{success}</p>}
 
           <div className={styles.topGrid}>
-            <section className={styles.heroPanel}>
-              <label className={styles.heroLabel}>
-                {t("Тема", "Тақырып")}
-                <input
-                  className={styles.heroInput}
-                  placeholder={t("Например: Алгебра — степени", "Мысалы: Алгебра — дәреже")}
-                  value={draft.title}
-                  onChange={(event) =>
-                    setDraft((prev) => ({
-                      ...prev,
-                      title: event.target.value,
-                    }))
-                  }
-                  maxLength={160}
-                />
-              </label>
-
-              <div className={styles.heroMetaGrid}>
-                <label className={styles.heroLabel}>
-                  {t("Длительность", "Ұзақтығы")}
-                  <select
-                    className={styles.heroInput}
-                    value={draft.duration_minutes}
-                    onChange={(event) =>
-                      setDraft((prev) => ({
-                        ...prev,
-                        duration_minutes: Number(event.target.value),
-                      }))
-                    }
-                  >
-                    {DURATION_OPTIONS.map((value) => (
-                      <option key={value} value={value}>
-                        {value} {t("мин", "мин")}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className={styles.heroLabel}>
-                  {t("Лимит предупреждений", "Ескерту лимиті")}
-                  <select
-                    className={styles.heroInput}
-                    value={draft.warning_limit}
-                    onChange={(event) =>
-                      setDraft((prev) => ({
-                        ...prev,
-                        warning_limit: Number(event.target.value),
-                      }))
-                    }
-                  >
-                    {WARNING_OPTIONS.map((value) => (
-                      <option key={value} value={value}>
-                        {value}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className={styles.heroLabel}>
-                  {t("Срок сдачи", "Тапсыру мерзімі")}
-                  <input
-                    className={styles.heroInput}
-                    type="date"
-                    value={draft.due_date}
-                    onChange={(event) =>
-                      setDraft((prev) => ({
-                        ...prev,
-                        due_date: event.target.value,
-                      }))
-                    }
-                  />
-                </label>
-              </div>
-
-              <div className={styles.summaryBlock}>
-                <h3 className={styles.heroSummaryTitle}>{t("Итого", "Қорытынды")}</h3>
-                <div className={styles.heroStats}>
-                  <article className={styles.statItem}>
-                    <span>{t("Ваш тест распознан как", "Тест анықталды")}</span>
-                    <strong>{difficultyLabel}</strong>
-                  </article>
-                  <article className={styles.statItem}>
-                    <span>{t("Вопросов", "Сұрақтар")}</span>
-                    <strong>{totalQuestions}</strong>
-                  </article>
-                  <article className={styles.statItem}>
-                    <span>{t("Выбран для", "Таңдалған")}</span>
-                    <strong>{groupSelectionLabel}</strong>
-                  </article>
-                </div>
-              </div>
-
-              <div className={styles.heroActions}>
-                <button className={styles.createButton} disabled={submitting} onClick={() => void submitCustomTest()} type="button">
-                  {submitting ? t("Создаем...", "Құрылуда...") : t("Создать тест", "Тест құру")}
-                </button>
-                <button className={styles.clearButton} onClick={clearDraft} type="button">
-                  {t("Очистить форму", "Форманы тазалау")}
-                </button>
-              </div>
-            </section>
-
-            <aside className={styles.groupsAside}>
-              {loadingGroups ? (
-                <p className={styles.empty}>{t("Загрузка...", "Жүктелуде...")}</p>
-              ) : groups.length === 0 ? (
-                <p className={styles.empty}>
+            <section className={styles.topColumn}>
+              <header className={styles.headerBlock}>
+                <h2 className={styles.title}>{t("Создать тест", "Тест құру")}</h2>
+                <p className={styles.subtitle}>
                   {t(
-                    "У вас пока нет групп. Сначала создайте группу на странице «Группы».",
-                    "Сізде әлі топ жоқ. Алдымен «Топтар» бетінде топ құрыңыз.",
+                    "Соберите собственный тест: тема, лимиты и вопросы с правильными ответами",
+                    "Өз тестіңізді жасаңыз: тақырып, лимиттер және дұрыс жауаптары бар сұрақтар",
                   )}
                 </p>
-              ) : (
-                <div className={styles.groupsList}>
-                  {groups.map((group) => {
-                    const selected = selectedGroupIds.includes(group.id);
-                    return (
-                      <button
-                        className={`${styles.groupCard} ${selected ? styles.groupCardActive : ""}`}
-                        key={group.id}
-                        onClick={() => toggleGroupSelection(group.id)}
-                        type="button"
-                      >
-                        <img alt="" aria-hidden="true" className={styles.groupIcon} src={assetPaths.icons.group} />
-                        <div className={styles.groupText}>
-                          <h3>{group.name}</h3>
-                          <p>
-                            {group.members_count} {t("человек", "адам")}
-                          </p>
-                        </div>
-                        <span className={`${styles.groupDot} ${selected ? styles.groupDotActive : ""}`} />
-                      </button>
-                    );
-                  })}
+              </header>
+
+              <section className={styles.heroPanel}>
+                <label className={styles.heroLabel}>
+                  {t("Тема", "Тақырып")}
+                  <input
+                    className={styles.heroInput}
+                    placeholder={t("Например: Алгебра — степени", "Мысалы: Алгебра — дәреже")}
+                    value={draft.title}
+                    onChange={(event) =>
+                      setDraft((prev) => ({
+                        ...prev,
+                        title: event.target.value,
+                      }))
+                    }
+                    maxLength={160}
+                  />
+                </label>
+
+                <div className={styles.heroMetaGrid}>
+                  <label className={styles.heroLabel}>
+                    {t("Длительность", "Ұзақтығы")}
+                    <select
+                      className={styles.heroInput}
+                      value={draft.duration_minutes}
+                      onChange={(event) =>
+                        setDraft((prev) => ({
+                          ...prev,
+                          duration_minutes: Number(event.target.value),
+                        }))
+                      }
+                    >
+                      {DURATION_OPTIONS.map((value) => (
+                        <option key={value} value={value}>
+                          {value} {t("мин", "мин")}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className={styles.heroLabel}>
+                    {t("Лимит предупреждений", "Ескерту лимиті")}
+                    <select
+                      className={styles.heroInput}
+                      value={draft.warning_limit}
+                      onChange={(event) =>
+                        setDraft((prev) => ({
+                          ...prev,
+                          warning_limit: Number(event.target.value),
+                        }))
+                      }
+                    >
+                      {WARNING_OPTIONS.map((value) => (
+                        <option key={value} value={value}>
+                          {value}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className={styles.heroLabel}>
+                    {t("Срок сдачи", "Тапсыру мерзімі")}
+                    <input
+                      className={styles.heroInput}
+                      type="date"
+                      value={draft.due_date}
+                      onChange={(event) =>
+                        setDraft((prev) => ({
+                          ...prev,
+                          due_date: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
                 </div>
-              )}
-            </aside>
+
+                <div className={styles.summaryBlock}>
+                  <h3 className={styles.heroSummaryTitle}>{t("Итого", "Қорытынды")}</h3>
+                  <div className={styles.heroStats}>
+                    <article className={styles.statItem}>
+                      <span>{t("Ваш тест распознан как", "Тест анықталды")}</span>
+                      <strong>{difficultyLabel}</strong>
+                    </article>
+                    <article className={styles.statItem}>
+                      <span>{t("Вопросов", "Сұрақтар")}</span>
+                      <strong>{totalQuestions}</strong>
+                    </article>
+                    <article className={styles.statItem}>
+                      <span>{t("Выбран для", "Таңдалған")}</span>
+                      <strong>{groupSelectionLabel}</strong>
+                    </article>
+                  </div>
+                </div>
+
+                <div className={styles.heroActions}>
+                  <button className={styles.createButton} disabled={submitting} onClick={() => void submitCustomTest()} type="button">
+                    {submitting ? t("Создаем...", "Құрылуда...") : t("Создать тест", "Тест құру")}
+                  </button>
+                  <button className={styles.clearButton} onClick={clearDraft} type="button">
+                    {t("Очистить форму", "Форманы тазалау")}
+                  </button>
+                </div>
+              </section>
+            </section>
+
+            <section className={styles.topColumn}>
+              <header className={styles.headerBlock}>
+                <h2 className={styles.title}>{t("Для групп", "Топтар үшін")}</h2>
+                <p className={styles.subtitle}>
+                  {t("Выберите группы, которым хотите добавить этот тест", "Бұл тестті қосқыңыз келетін топтарды таңдаңыз")}
+                </p>
+              </header>
+
+              <aside className={styles.groupsAside}>
+                {loadingGroups ? (
+                  <p className={styles.empty}>{t("Загрузка...", "Жүктелуде...")}</p>
+                ) : groups.length === 0 ? (
+                  <p className={styles.empty}>
+                    {t(
+                      "У вас пока нет групп. Сначала создайте группу на странице «Группы».",
+                      "Сізде әлі топ жоқ. Алдымен «Топтар» бетінде топ құрыңыз.",
+                    )}
+                  </p>
+                ) : (
+                  <div className={styles.groupsList}>
+                    {groups.map((group) => {
+                      const selected = selectedGroupIds.includes(group.id);
+                      return (
+                        <button
+                          className={`${styles.groupCard} ${selected ? styles.groupCardActive : ""}`}
+                          key={group.id}
+                          onClick={() => toggleGroupSelection(group.id)}
+                          type="button"
+                        >
+                          <img alt="" aria-hidden="true" className={styles.groupIcon} src={assetPaths.icons.group} />
+                          <div className={styles.groupText}>
+                            <h3>{group.name}</h3>
+                            <p>
+                              {group.members_count} {t("человек", "адам")}
+                            </p>
+                          </div>
+                          <span className={`${styles.groupDot} ${selected ? styles.groupDotActive : ""}`} />
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </aside>
+            </section>
           </div>
 
           <section className={styles.questionsSection}>
