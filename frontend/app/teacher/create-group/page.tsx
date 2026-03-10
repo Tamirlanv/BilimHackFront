@@ -12,7 +12,7 @@ import { tr, useUiLanguage } from "@/lib/i18n";
 import styles from "@/app/teacher/create-group/create-group.module.css";
 
 const MAX_TEACHER_GROUPS = 3;
-const MAX_GROUP_MEMBERS = 5;
+const MAX_GROUP_MEMBERS = 30;
 
 export default function CreateGroupPage() {
   const router = useRouter();

@@ -22,7 +22,7 @@ import { TeacherGroupMembers, TeacherInvitation } from "@/lib/types";
 import { assetPaths } from "@/src/assets";
 import styles from "@/app/teacher/groups/[id]/group-detail.module.css";
 
-const MAX_GROUP_MEMBERS = 5;
+const MAX_GROUP_MEMBERS = 30;
 
 function buildStudentAnalyticsHref(studentId: number, studentName?: string) {
   const params = new URLSearchParams();

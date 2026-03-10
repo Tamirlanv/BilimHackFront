@@ -13,7 +13,7 @@ class TeacherGroupListItem(BaseModel):
 
 class TeacherGroupCreateRequest(BaseModel):
     name: str = Field(min_length=2, max_length=120)
-    student_ids: list[int] = Field(default_factory=list, max_length=5)
+    student_ids: list[int] = Field(default_factory=list, max_length=30)
 
 
 class TeacherGroupCreateResponse(BaseModel):

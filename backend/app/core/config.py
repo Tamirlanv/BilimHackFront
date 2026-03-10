@@ -99,7 +99,7 @@ class Settings(BaseSettings):
 
     seed_demo_data: bool = True
     teacher_max_groups: int = 3
-    group_max_members: int = 5
+    group_max_members: int = 30
 
     email_verification_enabled: bool = True
     email_verification_code_ttl_minutes: int = 10
