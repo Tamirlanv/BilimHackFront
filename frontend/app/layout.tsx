@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 
+import ToastViewport from "@/components/ToastViewport";
 import { absoluteUrl, siteConfig, siteUrl } from "@/src/config/site";
 import { tokens } from "@/src/theme/tokens";
 import "./globals.css";
@@ -124,6 +125,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd) }}
         />
         {children}
+        <ToastViewport />
       </body>
     </html>
   );

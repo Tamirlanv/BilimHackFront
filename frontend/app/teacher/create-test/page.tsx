@@ -13,6 +13,7 @@ import {
 } from "@/lib/api";
 import { getToken, getUser } from "@/lib/auth";
 import { tr, useUiLanguage } from "@/lib/i18n";
+import { toast } from "@/lib/toast";
 import { Difficulty, TeacherCustomMaterialQuestion, TeacherCustomQuestionInput, TeacherGroup } from "@/lib/types";
 import { assetPaths } from "@/src/assets";
 import styles from "@/app/teacher/create-test/create-test.module.css";
@@ -259,8 +260,6 @@ export default function TeacherCreateTestPage() {
   const [selectedGroupIds, setSelectedGroupIds] = useState<number[]>([]);
   const [loadingGroups, setLoadingGroups] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
   const [createdSuccessModalOpen, setCreatedSuccessModalOpen] = useState(false);
 
   const totalQuestions = draft.questions.length;
@@ -341,7 +340,7 @@ export default function TeacherCreateTestPage() {
         setGroups(payload);
       } catch (requestError) {
         if (cancelled) return;
-        setError(
+        toast.error(
           requestError instanceof Error
             ? requestError.message
             : t("Не удалось загрузить список групп.", "Топтар тізімін жүктеу мүмкін болмады."),
@@ -402,15 +401,11 @@ export default function TeacherCreateTestPage() {
     setMaterialGenerated(false);
     setSelectedImportFile(null);
     setParsedImportFilename("");
-    setError("");
-    setSuccess("");
     setCreatedSuccessModalOpen(false);
   };
 
   const setMode = (mode: CreateMode) => {
     setCreateMode(mode);
-    setError("");
-    setSuccess("");
     if (mode === "manual") {
       return;
     }
@@ -427,12 +422,10 @@ export default function TeacherCreateTestPage() {
 
     const topic = draft.title.trim();
     if (!topic) {
-      setError(t("Сначала введите тему для AI-генерации.", "Алдымен AI генерация үшін тақырып енгізіңіз."));
+      toast.error(t("Введите тему.", "Тақырыпты енгізіңіз."));
       return;
     }
 
-    setError("");
-    setSuccess("");
     setGenerationProgress(0);
     setGeneratingMaterial(true);
 
@@ -446,7 +439,7 @@ export default function TeacherCreateTestPage() {
 
       const mappedQuestions = payload.questions.map((item, index) => normalizeGeneratedQuestion(item, index));
       if (mappedQuestions.length === 0) {
-        setError(t("AI не вернул корректный материал. Попробуйте снова.", "AI дұрыс материал қайтармады. Қайталап көріңіз."));
+        toast.error(t("Материал не сгенерирован.", "Материал генерацияланбады."));
         setMaterialGenerated(false);
         return;
       }
@@ -458,16 +451,16 @@ export default function TeacherCreateTestPage() {
       }));
       setMaterialGenerated(true);
       setGenerationProgress(100);
-      setSuccess(
+      toast.success(
         t(
-          `Материал сгенерирован: ${mappedQuestions.length} вопросов. Проверьте и при необходимости отредактируйте.`,
-          `Материал жасалды: ${mappedQuestions.length} сұрақ. Тексеріп, қажет болса өңдеңіз.`,
+          `Материал готов: ${mappedQuestions.length} вопросов.`,
+          `Материал дайын: ${mappedQuestions.length} сұрақ.`,
         ),
       );
     } catch (requestError) {
       setMaterialGenerated(false);
       setGenerationProgress(0);
-      setError(
+      toast.error(
         requestError instanceof Error
           ? requestError.message
           : t("Не удалось сгенерировать материал.", "Материалды генерациялау мүмкін болмады."),
@@ -485,12 +478,10 @@ export default function TeacherCreateTestPage() {
     if (!token) return;
 
     if (!selectedImportFile) {
-      setError(t("Сначала прикрепите файл шаблона.", "Алдымен шаблон файлын тіркеңіз."));
+      toast.error(t("Прикрепите файл.", "Файлды тіркеңіз."));
       return;
     }
 
-    setError("");
-    setSuccess("");
     setParsingImportFile(true);
     try {
       const payload = await parseTeacherCustomTestFile(token, selectedImportFile);
@@ -507,15 +498,15 @@ export default function TeacherCreateTestPage() {
       }));
       setMaterialGenerated(true);
       setParsedImportFilename(payload.source_filename || selectedImportFile.name);
-      setSuccess(
+      toast.success(
         t(
-          `Файл преобразован: ${mappedQuestions.length} вопросов. Проверьте и при необходимости отредактируйте.`,
-          `Файл түрлендірілді: ${mappedQuestions.length} сұрақ. Тексеріп, қажет болса өңдеңіз.`,
+          `Файл обработан: ${mappedQuestions.length} вопросов.`,
+          `Файл өңделді: ${mappedQuestions.length} сұрақ.`,
         ),
       );
     } catch (requestError) {
       setMaterialGenerated(false);
-      setError(
+      toast.error(
         requestError instanceof Error
           ? requestError.message
           : t("Не удалось преобразовать файл.", "Файлды түрлендіру мүмкін болмады."),
@@ -536,20 +527,18 @@ export default function TeacherCreateTestPage() {
     const normalizedName = nextFile.name.trim().toLowerCase();
     const hasAllowedExtension = FILE_IMPORT_ALLOWED_EXTENSIONS.some((ext) => normalizedName.endsWith(ext));
     if (!hasAllowedExtension) {
-      setError(t("Поддерживаются только файлы .docx и .csv.", "Тек .docx және .csv файлдары қолдау көрсетіледі."));
+      toast.error(t("Только .docx и .csv.", "Тек .docx және .csv."));
       setSelectedImportFile(null);
       setMaterialGenerated(false);
       return;
     }
     if (nextFile.size > MAX_IMPORT_FILE_SIZE) {
-      setError(t("Размер файла превышает 5MB.", "Файл өлшемі 5MB-тан асады."));
+      toast.error(t("Файл больше 5MB.", "Файл 5MB-тан үлкен."));
       setSelectedImportFile(null);
       setMaterialGenerated(false);
       return;
     }
 
-    setError("");
-    setSuccess("");
     setSelectedImportFile(nextFile);
     setParsedImportFilename("");
     setMaterialGenerated(false);
@@ -561,11 +550,11 @@ export default function TeacherCreateTestPage() {
     }
     const normalizedType = (nextFile.type || "").toLowerCase();
     if (!normalizedType.startsWith("image/")) {
-      setError(t("Можно прикреплять только изображения.", "Тек сурет файлдарын тіркеуге болады."));
+      toast.error(t("Только изображение.", "Тек сурет файлы."));
       return;
     }
     if (nextFile.size > MAX_QUESTION_IMAGE_SIZE) {
-      setError(t("Размер изображения превышает 1MB.", "Сурет көлемі 1MB-тан асады."));
+      toast.error(t("Изображение больше 1MB.", "Сурет 1MB-тан үлкен."));
       return;
     }
 
@@ -573,17 +562,16 @@ export default function TeacherCreateTestPage() {
     reader.onload = () => {
       const value = typeof reader.result === "string" ? reader.result : "";
       if (!value) {
-        setError(t("Не удалось прочитать изображение.", "Суретті оқу мүмкін болмады."));
+        toast.error(t("Не удалось прочитать изображение.", "Суретті оқу мүмкін болмады."));
         return;
       }
       updateQuestion(questionId, (prev) => ({
         ...prev,
         image_data_url: value,
       }));
-      setError("");
     };
     reader.onerror = () => {
-      setError(t("Не удалось прочитать изображение.", "Суретті оқу мүмкін болмады."));
+      toast.error(t("Не удалось прочитать изображение.", "Суретті оқу мүмкін болмады."));
     };
     reader.readAsDataURL(nextFile);
   };
@@ -592,30 +580,27 @@ export default function TeacherCreateTestPage() {
     const token = getToken();
     if (!token) return;
 
-    setError("");
-    setSuccess("");
-
     const normalizedTitle = draft.title.trim();
     if (!normalizedTitle) {
-      setError(t("Введите тему теста.", "Тест тақырыбын енгізіңіз."));
+      toast.error(t("Введите тему.", "Тақырыпты енгізіңіз."));
       return;
     }
 
     if (createMode === "ai" && !materialGenerated) {
-      setError(
+      toast.error(
         t(
-          "Сначала нажмите «Сгенерировать материал», затем проверьте вопросы.",
-          "Алдымен «Материалды генерациялау» батырмасын басып, сұрақтарды тексеріңіз.",
+          "Подготовьте материал.",
+          "Материалды дайындаңыз.",
         ),
       );
       return;
     }
 
     if (selectedGroupIds.length === 0) {
-      setError(
+      toast.error(
         t(
-          "Выберите хотя бы одну группу справа, чтобы назначить тест.",
-          "Тестті тағайындау үшін оң жақтан кемінде бір топты таңдаңыз.",
+          "Выберите группу.",
+          "Топты таңдаңыз.",
         ),
       );
       return;
@@ -627,10 +612,10 @@ export default function TeacherCreateTestPage() {
       setSelectedGroupIds(selectedExistingGroupIds);
     }
     if (selectedExistingGroupIds.length === 0) {
-      setError(
+      toast.error(
         t(
-          "Выбранные группы больше не доступны. Обновите список и выберите группы снова.",
-          "Таңдалған топтар енді қолжетімсіз. Тізімді жаңартып, топтарды қайта таңдаңыз.",
+          "Выберите группу заново.",
+          "Топты қайта таңдаңыз.",
         ),
       );
       return;
@@ -640,13 +625,13 @@ export default function TeacherCreateTestPage() {
     try {
       payloadQuestions = buildPayloadQuestions(draft.questions, t);
     } catch (validationError) {
-      setError(validationError instanceof Error ? validationError.message : t("Проверьте вопросы.", "Сұрақтарды тексеріңіз."));
+      toast.error(validationError instanceof Error ? validationError.message : t("Проверьте вопросы.", "Сұрақтарды тексеріңіз."));
       return;
     }
 
     try {
       setSubmitting(true);
-      const created = await createTeacherCustomTest(token, {
+      await createTeacherCustomTest(token, {
         title: normalizedTitle,
         duration_minutes: draft.duration_minutes,
         warning_limit: draft.warning_limit,
@@ -655,12 +640,11 @@ export default function TeacherCreateTestPage() {
         questions: payloadQuestions,
       });
 
-      setSuccess("");
       setDraft(createInitialDraft());
       setSelectedGroupIds([]);
       setCreatedSuccessModalOpen(true);
     } catch (requestError) {
-      setError(
+      toast.error(
         requestError instanceof Error
           ? requestError.message
           : t("Не удалось создать тест.", "Тестті құру мүмкін болмады."),
@@ -674,9 +658,6 @@ export default function TeacherCreateTestPage() {
     <AuthGuard roles={["teacher"]}>
       <AppShell>
         <div className={styles.page}>
-          {error && <p className={styles.error}>{error}</p>}
-          {success && <p className={styles.success}>{success}</p>}
-
           <div className={styles.topGrid}>
             <section className={styles.topColumn}>
               <header className={styles.headerBlock}>
@@ -916,17 +897,19 @@ export default function TeacherCreateTestPage() {
 
                   <label className={styles.heroLabel}>
                     {t("Срок сдачи", "Тапсыру мерзімі")}
-                    <input
-                      className={styles.heroInput}
-                      type="date"
-                      value={draft.due_date}
-                      onChange={(event) =>
-                        setDraft((prev) => ({
-                          ...prev,
-                          due_date: event.target.value,
-                        }))
-                      }
-                    />
+                    <div className={styles.dateInputWrap}>
+                      <input
+                        className={styles.heroInput}
+                        type="date"
+                        value={draft.due_date}
+                        onChange={(event) =>
+                          setDraft((prev) => ({
+                            ...prev,
+                            due_date: event.target.value,
+                          }))
+                        }
+                      />
+                    </div>
                   </label>
                 </div>
 

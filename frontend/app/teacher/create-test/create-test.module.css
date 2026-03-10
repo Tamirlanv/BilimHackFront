@@ -335,6 +335,20 @@
   padding-right: 40px;
 }
 
+.dateInputWrap {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  border-radius: 12px;
+}
+
+.dateInputWrap .heroInput[type="date"] {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
 .heroInput[type="date"]::-webkit-date-and-time-value {
   text-align: left;
 }
@@ -991,8 +1005,36 @@
     max-width: 100%;
   }
 
+  .heroMetaGrid {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .heroMetaGrid > .heroLabel {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+  }
+
+  .dateInputWrap {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+  }
+
   .heroInput[type="date"] {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    -webkit-appearance: none;
+    appearance: none;
     padding-right: 34px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    -webkit-min-logical-width: 0;
   }
 
   .heroSummaryTitle {
