@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { getToken, getUser } from "@/lib/auth";
@@ -17,6 +17,8 @@ export default function AuthGuard({ roles, children }: AuthGuardProps) {
   const uiLanguage = useUiLanguage();
   const t = (ru: string, kz: string) => tr(uiLanguage, ru, kz);
   const [ready, setReady] = useState(false);
+  const rolesKey = roles?.join("|") || "";
+  const allowedRoles = useMemo(() => (rolesKey ? (rolesKey.split("|") as UserRole[]) : undefined), [rolesKey]);
 
   useEffect(() => {
     const token = getToken();
@@ -27,13 +29,13 @@ export default function AuthGuard({ roles, children }: AuthGuardProps) {
       return;
     }
 
-    if (roles && !roles.includes(user.role)) {
+    if (allowedRoles && !allowedRoles.includes(user.role)) {
       router.replace(user.role === "teacher" ? "/teacher" : "/dashboard");
       return;
     }
 
     setReady(true);
-  }, [roles, router]);
+  }, [allowedRoles, router]);
 
   if (!ready) {
     return <div className="pageLoading">{t("Загрузка...", "Жүктелуде...")}</div>;

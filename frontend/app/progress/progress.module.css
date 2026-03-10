@@ -165,7 +165,7 @@
 .footer {
   text-align: center;
   color: var(--ink-muted);
-  font-size: 16px;
+  font-size: 12px;
   line-height: 1.35;
   font-weight: 350;
 }

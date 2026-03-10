@@ -22,6 +22,7 @@ export default function RegisterPage() {
   const [fullName, setFullName] = useState("");
   const [username, setUsername] = useState("");
   const [role, setRole] = useState<UserRole>("student");
+  const [adminKey, setAdminKey] = useState("");
   const [educationLevel, setEducationLevel] = useState<EducationLevel>("school");
   const [direction, setDirection] = useState("");
   const [password, setPassword] = useState("");
@@ -53,8 +54,14 @@ export default function RegisterPage() {
     const usernameValue = username.trim();
     if (!/^[A-Za-z0-9_]{3,25}$/.test(usernameValue)) {
       return t(
-        "Имя пользователя: только латинские буквы, цифры и _, длина 3-25 символов.",
-        "Пайдаланушы аты: тек латын әріптері, сандар және _, ұзындығы 3-25 таңба.",
+        "Никнейм: только латинские буквы, цифры и _, длина 3-25 символов.",
+        "Никнейм: тек латын әріптері, сандар және _, ұзындығы 3-25 таңба.",
+      );
+    }
+    if (role === "teacher" && !adminKey.trim()) {
+      return t(
+        "Введите ключ администратора для регистрации преподавателя.",
+        "Оқытушы ретінде тіркелу үшін әкімші кілтін енгізіңіз.",
       );
     }
     if (role === "student" && !direction.trim()) {
@@ -109,8 +116,8 @@ export default function RegisterPage() {
       setLoading(false);
       setError(
         t(
-          "Имя пользователя: только латинские буквы, цифры и _, длина 3-25 символов.",
-          "Пайдаланушы аты: тек латын әріптері, сандар және _, ұзындығы 3-25 таңба.",
+          "Никнейм: только латинские буквы, цифры и _, длина 3-25 символов.",
+          "Никнейм: тек латын әріптері, сандар және _, ұзындығы 3-25 таңба.",
         ),
       );
       return;
@@ -128,6 +135,7 @@ export default function RegisterPage() {
         full_name: fullName,
         username: usernameValue,
         email_verification_code: normalizedCode,
+        admin_key: role === "teacher" ? adminKey.trim() : undefined,
         education_level: role === "student" ? educationLevel : undefined,
         direction: role === "student" ? direction.trim() : undefined,
         password,
@@ -165,7 +173,7 @@ export default function RegisterPage() {
             </label>
 
             <label className={styles.label}>
-              <span>{t("Имя пользователя", "Пайдаланушы аты")}</span>
+              <span>{t("Никнейм", "Никнейм")}</span>
               <input
                 className={styles.input}
                 maxLength={25}
@@ -181,9 +189,22 @@ export default function RegisterPage() {
               <span>{t("Роль", "Рөлі")}</span>
               <select className={styles.input} onChange={(e) => setRole(e.target.value as UserRole)} value={role}>
                 <option value="student">{t("Студент", "Оқушы")}</option>
-                <option value="teacher">{t("Преподаватель (админ)", "Оқытушы (админ)")}</option>
+                <option value="teacher">{t("Преподаватель", "Оқытушы")}</option>
               </select>
             </label>
+
+            {role === "teacher" && (
+              <label className={styles.label}>
+                <span>{t("Ключ администратора", "Әкімші кілті")}</span>
+                <input
+                  className={styles.input}
+                  onChange={(e) => setAdminKey(e.target.value)}
+                  placeholder={t("Введите ключ", "Кілтті енгізіңіз")}
+                  required
+                  value={adminKey}
+                />
+              </label>
+            )}
 
             {role === "student" && (
               <label className={styles.label}>

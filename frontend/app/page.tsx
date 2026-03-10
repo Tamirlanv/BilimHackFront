@@ -170,7 +170,7 @@ export default function LandingPage() {
         </section>
       </main>
 
-      <footer className={styles.footer} data-nosnippet="true">OKU.com.kz</footer>
+      <footer className={styles.footer} data-nosnippet="true">oku.com.kz</footer>
     </div>
   );
 }

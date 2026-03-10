@@ -212,7 +212,7 @@ export default function TeacherGroupsPage() {
             )}
           </section>
 
-          <footer className={styles.footer}>OKU.com</footer>
+          <footer className={styles.footer}>oku.com.kz</footer>
         </div>
 
         {createModalOpen && (

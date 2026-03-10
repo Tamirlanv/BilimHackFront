@@ -8,7 +8,9 @@ OKU — персонализированная система экзаменов
 - DB: PostgreSQL
 - Cache/Queue: Redis + RQ worker
 - Frontend: Next.js 14 (responsive)
-- AI: `mock` или DeepSeek (`deepseek-chat`)
+- AI: раздельно по ролям
+  - student: `gemini`
+  - teacher: `claude`
 - STT/TTS: `auto` (бесплатный `edge-tts`) или ElevenLabs
 - Observability: JSON logs + Prometheus `/metrics` + optional Sentry
 - Deploy: Docker Compose + Caddy (HTTPS, Let's Encrypt)
@@ -74,9 +76,13 @@ OTEL_ENABLED=false
 OTEL_SERVICE_NAME=oku-backend
 OTEL_EXPORTER_OTLP_ENDPOINT=
 
-# AI
-AI_PROVIDER=deepseek
-DEEPSEEK_API_KEY=<your-deepseek-key>
+# AI (role-based)
+STUDENT_AI_PROVIDER=gemini
+TEACHER_AI_PROVIDER=claude
+GEMINI_API_KEY=<your-gemini-key>
+CLAUDE_API_KEY=<your-claude-key>
+# optional fallback/global (не обязателен при role-based настройке)
+AI_PROVIDER=mock
 
 # Recommended for prod
 PROD_SEED_DEMO_DATA=false
@@ -130,7 +136,11 @@ GRANT ALL PRIVILEGES ON DATABASE oku TO oku;
 Ключевые поля:
 - `DATABASE_URL=postgresql+psycopg://oku:oku@localhost:5432/oku`
 - `NEXT_PUBLIC_API_URL=http://localhost:8000`
-- `AI_PROVIDER=mock` (или `deepseek` + `DEEPSEEK_API_KEY`)
+- `STUDENT_AI_PROVIDER=gemini`
+- `TEACHER_AI_PROVIDER=claude`
+- `GEMINI_API_KEY=<your_gemini_key>`
+- `CLAUDE_API_KEY=<your_claude_key>`
+- `AI_PROVIDER=mock` (опциональный общий fallback; для role-based можно оставить как есть)
 - `TTS_PROVIDER=auto` (по умолчанию: бесплатный `edge-tts`, без API ключа)
 - `TTS_PROVIDER=edge_tts` (принудительно использовать бесплатный серверный TTS)
 - `EDGE_TTS_VOICE_RU=ru-RU-SvetlanaNeural` (опционально)
@@ -153,6 +163,19 @@ GRANT ALL PRIVILEGES ON DATABASE oku TO oku;
 - `RESEND_API_KEY=<resend_api_key>`
 - `RESEND_BASE_URL=https://api.resend.com`
 - `SMTP_FROM_EMAIL=<верифицированный_sender_email>`
+
+### Импорт теста из файла (сторона преподавателя)
+- На странице `Создать тест` доступен режим `Создать из файла`.
+- Поддерживаемые форматы: `.docx`, `.csv`.
+- Лимит размера файла: `5MB`.
+- Для `.docx` используется шаблон с тегами:
+  - `<q>` — текст вопроса
+  - `<a>` — неверный вариант
+  - `<+a>` — правильный вариант
+- Пример:
+  - `<q>Когда празднуют День Независимости Казахстана?`
+  - `<+a>16 декабря<a>17 декабря`
+  - `<a>1 декабря<a>31 декабря`
 
 ### 4) Установка зависимостей
 ```bash

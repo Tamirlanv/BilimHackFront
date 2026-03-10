@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type MouseEvent } from "react";
 
 import AppShell from "@/components/AppShell";
 import AuthGuard from "@/components/AuthGuard";
@@ -244,6 +244,12 @@ function normalizeSubjectName(value: string): string {
     .replace(/[^a-zа-я0-9әіңғүұқөһ]/gi, "");
 }
 
+function isGroupOnlySubject(subject: Subject): boolean {
+  const ru = normalizeSubjectName(subject.name_ru || "");
+  const kz = normalizeSubjectName(subject.name_kz || "");
+  return ru === "групповойтест" || kz === "топтықтест";
+}
+
 export default function TestSetupPage() {
   const router = useRouter();
   const uiLanguage = useUiLanguage();
@@ -264,6 +270,32 @@ export default function TestSetupPage() {
 
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  const setWheelSpacer = (row: HTMLElement) => {
+    row.style.setProperty("--wheel-spacer", `${Math.max(0, row.clientWidth / 2)}px`);
+  };
+
+  const centerChoiceButton = (button: HTMLElement, behavior: ScrollBehavior = "auto") => {
+    const row = button.parentElement as HTMLElement | null;
+    if (!row) return;
+    const rowCenter = row.clientWidth / 2;
+    const target = button.offsetLeft + button.offsetWidth / 2 - rowCenter;
+    const maxLeft = Math.max(0, row.scrollWidth - row.clientWidth);
+    const nextLeft = Math.min(maxLeft, Math.max(0, target));
+    row.scrollTo({ left: nextLeft, behavior });
+  };
+
+  const handleWheelChoice = <T,>(
+    setter: (value: T) => void,
+    value: T,
+    event: MouseEvent<HTMLButtonElement>,
+  ) => {
+    const button = event.currentTarget;
+    setter(value);
+    requestAnimationFrame(() => {
+      centerChoiceButton(button, "smooth");
+    });
+  };
 
   useEffect(() => {
     const token = getToken();
@@ -301,6 +333,54 @@ export default function TestSetupPage() {
     };
   }, [isSettingsModalOpen, isExamModalOpen, loading]);
 
+  useEffect(() => {
+    if (!isSettingsModalOpen && !isExamModalOpen) return;
+    const rows = Array.from(document.querySelectorAll<HTMLElement>(`.${styles.choiceRow}`));
+
+    const alignActive = () => {
+      rows.forEach((row) => {
+        setWheelSpacer(row);
+        const active = row.querySelector<HTMLElement>(`.${styles.choiceButtonActive}`);
+        if (active) {
+          centerChoiceButton(active, "auto");
+        }
+      });
+    };
+
+    const frameA = requestAnimationFrame(() => {
+      requestAnimationFrame(alignActive);
+    });
+
+    const onTransitionEnd = (event: Event) => {
+      const target = event.target as HTMLElement | null;
+      if (!target || !target.classList.contains(styles.choiceButton)) return;
+      requestAnimationFrame(alignActive);
+    };
+
+    rows.forEach((row) => row.addEventListener("transitionend", onTransitionEnd));
+    return () => {
+      cancelAnimationFrame(frameA);
+      rows.forEach((row) => row.removeEventListener("transitionend", onTransitionEnd));
+    };
+  }, [isSettingsModalOpen, isExamModalOpen, difficulty, mode, language, numQuestions, timeLimitMinutes, entProfileSubjectId]);
+
+  useEffect(() => {
+    if (!isSettingsModalOpen && !isExamModalOpen) return;
+    const onResize = () => {
+      const rows = document.querySelectorAll<HTMLElement>(`.${styles.choiceRow}`);
+      rows.forEach((row) => {
+        setWheelSpacer(row);
+        const active = row.querySelector<HTMLElement>(`.${styles.choiceButtonActive}`);
+        if (active) {
+          centerChoiceButton(active, "auto");
+        }
+      });
+    };
+    window.addEventListener("resize", onResize);
+    onResize();
+    return () => window.removeEventListener("resize", onResize);
+  }, [isSettingsModalOpen, isExamModalOpen]);
+
   const subjectCatalog = useMemo<SubjectCatalogItem[]>(() => {
     const apiByNormalizedName = new Map<string, Subject>();
     for (const subject of subjects) {
@@ -330,7 +410,7 @@ export default function TestSetupPage() {
 
     const used = new Set(catalog.filter((item) => item.subject_id !== null).map((item) => item.subject_id as number));
     const extras: SubjectCatalogItem[] = subjects
-      .filter((subject) => !used.has(subject.id))
+      .filter((subject) => !used.has(subject.id) && !isGroupOnlySubject(subject))
       .map((subject) => ({
         key: `api-${subject.id}`,
         name_ru: subject.name_ru,
@@ -575,84 +655,104 @@ export default function TestSetupPage() {
 
               <div className={styles.modalBlock}>
                 <span className={styles.settingLabel}>{t("Сложность", "Күрделілік")}</span>
-                <div className={styles.choiceRow}>
-                  {DIFFICULTIES.map((item) => (
-                    <button
-                      key={item.value}
-                      type="button"
-                      className={`${styles.choiceButton} ${difficulty === item.value ? styles.choiceButtonActive : ""}`}
-                      onClick={() => setDifficulty(item.value)}
-                    >
-                      {uiLanguage === "RU" ? item.title_ru : item.title_kz}
-                    </button>
-                  ))}
+                <div className={styles.choiceWheel}>
+                  <div className={styles.choiceRow}>
+                    <span className={styles.wheelSpacer} aria-hidden="true" />
+                    {DIFFICULTIES.map((item) => (
+                      <button
+                        key={item.value}
+                        type="button"
+                        className={`${styles.choiceButton} ${difficulty === item.value ? styles.choiceButtonActive : ""}`}
+                        onClick={(event) => handleWheelChoice(setDifficulty, item.value, event)}
+                      >
+                        {uiLanguage === "RU" ? item.title_ru : item.title_kz}
+                      </button>
+                    ))}
+                    <span className={styles.wheelSpacer} aria-hidden="true" />
+                  </div>
                 </div>
               </div>
 
               <div className={styles.modalBlock}>
                 <span className={styles.settingLabel}>{t("Режим", "Режим")}</span>
-                <div className={styles.choiceRow}>
-                  {MODES.map((item) => (
-                    <button
-                      key={item.value}
-                      type="button"
-                      className={`${styles.choiceButton} ${mode === item.value ? styles.choiceButtonActive : ""}`}
-                      onClick={() => setMode(item.value)}
-                    >
-                      {uiLanguage === "RU" ? item.title_ru : item.title_kz}
-                    </button>
-                  ))}
+                <div className={styles.choiceWheel}>
+                  <div className={styles.choiceRow}>
+                    <span className={styles.wheelSpacer} aria-hidden="true" />
+                    {MODES.map((item) => (
+                      <button
+                        key={item.value}
+                        type="button"
+                        className={`${styles.choiceButton} ${mode === item.value ? styles.choiceButtonActive : ""}`}
+                        onClick={(event) => handleWheelChoice(setMode, item.value, event)}
+                      >
+                        {uiLanguage === "RU" ? item.title_ru : item.title_kz}
+                      </button>
+                    ))}
+                    <span className={styles.wheelSpacer} aria-hidden="true" />
+                  </div>
                 </div>
               </div>
 
               <div className={styles.modalBlock}>
                 <span className={styles.settingLabel}>{t("Язык", "Тіл")}</span>
-                <div className={styles.choiceRow}>
-                  {([
-                    { value: "RU", title: t("Русский", "Орысша") },
-                    { value: "KZ", title: t("Казахский", "Қазақша") },
-                  ] as const).map((item) => (
-                    <button
-                      key={item.value}
-                      type="button"
-                      className={`${styles.choiceButton} ${language === item.value ? styles.choiceButtonActive : ""}`}
-                      onClick={() => setLanguage(item.value)}
-                    >
-                      {item.title}
-                    </button>
-                  ))}
+                <div className={styles.choiceWheel}>
+                  <div className={styles.choiceRow}>
+                    <span className={styles.wheelSpacer} aria-hidden="true" />
+                    {([
+                      { value: "RU", title: t("Русский", "Орысша") },
+                      { value: "KZ", title: t("Казахский", "Қазақша") },
+                    ] as const).map((item) => (
+                      <button
+                        key={item.value}
+                        type="button"
+                        className={`${styles.choiceButton} ${language === item.value ? styles.choiceButtonActive : ""}`}
+                        onClick={(event) => handleWheelChoice(setLanguage, item.value, event)}
+                      >
+                        {item.title}
+                      </button>
+                    ))}
+                    <span className={styles.wheelSpacer} aria-hidden="true" />
+                  </div>
                 </div>
               </div>
 
               <div className={styles.modalBlock}>
                 <span className={styles.settingLabel}>{t("Количество вопросов", "Сұрақ саны")}</span>
-                <div className={styles.choiceRow}>
-                  {QUESTION_COUNTS.map((value) => (
-                    <button
-                      key={value}
-                      type="button"
-                      className={`${styles.choiceButton} ${numQuestions === value ? styles.choiceButtonActive : ""}`}
-                      onClick={() => setNumQuestions(value)}
-                    >
-                      {value}
-                    </button>
-                  ))}
+                <div className={styles.choiceWheel}>
+                  <div className={styles.choiceRow}>
+                    <span className={styles.wheelSpacer} aria-hidden="true" />
+                    {QUESTION_COUNTS.map((value) => (
+                      <button
+                        key={value}
+                        type="button"
+                        className={`${styles.choiceButton} ${numQuestions === value ? styles.choiceButtonActive : ""}`}
+                        onClick={(event) => handleWheelChoice(setNumQuestions, value, event)}
+                      >
+                        {value}
+                      </button>
+                    ))}
+                    <span className={styles.wheelSpacer} aria-hidden="true" />
+                  </div>
                 </div>
               </div>
 
               <div className={styles.modalBlock}>
                 <span className={styles.settingLabel}>{t("Лимит времени", "Уақыт лимиті")}</span>
-                <div className={styles.choiceRow}>
-                  {TIME_LIMIT_OPTIONS.map((value) => (
-                    <button
-                      key={value}
-                      type="button"
-                      className={`${styles.choiceButton} ${timeLimitMinutes === value ? styles.choiceButtonActive : ""}`}
-                      onClick={() => setTimeLimitMinutes(value)}
-                    >
-                      {value < 60 ? `${value} ${t("мин", "мин")}` : t("1 час", "1 сағат")}
-                    </button>
-                  ))}
+                <div className={styles.choiceWheel}>
+                  <div className={styles.choiceRow}>
+                    <span className={styles.wheelSpacer} aria-hidden="true" />
+                    {TIME_LIMIT_OPTIONS.map((value) => (
+                      <button
+                        key={value}
+                        type="button"
+                        className={`${styles.choiceButton} ${timeLimitMinutes === value ? styles.choiceButtonActive : ""}`}
+                        onClick={(event) => handleWheelChoice(setTimeLimitMinutes, value, event)}
+                      >
+                        {value < 60 ? `${value} ${t("мин", "мин")}` : t("1 час", "1 сағат")}
+                      </button>
+                    ))}
+                    <span className={styles.wheelSpacer} aria-hidden="true" />
+                  </div>
                 </div>
               </div>
 
@@ -696,20 +796,24 @@ export default function TestSetupPage() {
 
               <div className={styles.modalBlock}>
                 <span className={styles.settingLabel}>{t("Язык", "Тіл")}</span>
-                <div className={styles.choiceRow}>
-                  {([
-                    { value: "RU", title: t("Русский", "Орысша") },
-                    { value: "KZ", title: t("Казахский", "Қазақша") },
-                  ] as const).map((item) => (
-                    <button
-                      key={item.value}
-                      type="button"
-                      className={`${styles.choiceButton} ${language === item.value ? styles.choiceButtonActive : ""}`}
-                      onClick={() => setLanguage(item.value)}
-                    >
-                      {item.title}
-                    </button>
-                  ))}
+                <div className={styles.choiceWheel}>
+                  <div className={styles.choiceRow}>
+                    <span className={styles.wheelSpacer} aria-hidden="true" />
+                    {([
+                      { value: "RU", title: t("Русский", "Орысша") },
+                      { value: "KZ", title: t("Казахский", "Қазақша") },
+                    ] as const).map((item) => (
+                      <button
+                        key={item.value}
+                        type="button"
+                        className={`${styles.choiceButton} ${language === item.value ? styles.choiceButtonActive : ""}`}
+                        onClick={(event) => handleWheelChoice(setLanguage, item.value, event)}
+                      >
+                        {item.title}
+                      </button>
+                    ))}
+                    <span className={styles.wheelSpacer} aria-hidden="true" />
+                  </div>
                 </div>
               </div>
 
@@ -717,17 +821,21 @@ export default function TestSetupPage() {
                 <>
                   <div className={styles.modalBlock}>
                     <span className={styles.settingLabel}>{t("Профильный предмет (1 из 5)", "Бейіндік пән (5-тен 1)")}</span>
-                    <div className={styles.choiceRow}>
-                      {entProfileOptions.map((item) => (
-                        <button
-                          key={item.key}
-                          type="button"
-                          className={`${styles.choiceButton} ${entProfileSubjectId === item.subject?.id ? styles.choiceButtonActive : ""}`}
-                          onClick={() => setEntProfileSubjectId(item.subject?.id || null)}
-                        >
-                          {uiLanguage === "RU" ? item.title_ru : item.title_kz}
-                        </button>
-                      ))}
+                    <div className={styles.choiceWheel}>
+                      <div className={styles.choiceRow}>
+                        <span className={styles.wheelSpacer} aria-hidden="true" />
+                        {entProfileOptions.map((item) => (
+                          <button
+                            key={item.key}
+                            type="button"
+                            className={`${styles.choiceButton} ${entProfileSubjectId === item.subject?.id ? styles.choiceButtonActive : ""}`}
+                            onClick={(event) => handleWheelChoice(setEntProfileSubjectId, item.subject?.id || null, event)}
+                          >
+                            {uiLanguage === "RU" ? item.title_ru : item.title_kz}
+                          </button>
+                        ))}
+                        <span className={styles.wheelSpacer} aria-hidden="true" />
+                      </div>
                     </div>
                   </div>
 

@@ -38,6 +38,9 @@ export default function ResultPage() {
     const load = async () => {
       setLoading(true);
       setError("");
+      setData(null);
+      setTestMeta(null);
+      setSubjects([]);
 
       const [resultResponse, testResponse, subjectsResponse] = await Promise.allSettled([
         getTestResult(token, testId),
@@ -55,10 +58,14 @@ export default function ResultPage() {
 
       if (testResponse.status === "fulfilled") {
         setTestMeta(testResponse.value);
+      } else {
+        setTestMeta(null);
       }
 
       if (subjectsResponse.status === "fulfilled") {
         setSubjects(subjectsResponse.value);
+      } else {
+        setSubjects([]);
       }
 
       setLoading(false);
@@ -68,7 +75,7 @@ export default function ResultPage() {
     return () => {
       cancelled = true;
     };
-  }, [testId, uiLanguage]);
+  }, [testId]);
 
   const resolvedSubjectName = useMemo(() => {
     if (!testMeta) return t("Предмет", "Пән");
@@ -79,22 +86,33 @@ export default function ResultPage() {
 
   const examName = useMemo(() => {
     const kind = testMeta?.exam_kind;
-    if (!kind) return null;
-    return kind === "ent" ? t("ЕНТ", "ҰБТ") : "IELTS";
+    if (kind === "ent") return t("ЕНТ", "ҰБТ");
+    if (kind === "ielts") return "IELTS";
+    return null;
   }, [t, testMeta?.exam_kind]);
 
-  const subjectName = examName || resolvedSubjectName;
+  const isTeacherCustomTest = testMeta?.exam_kind === "group_custom";
+  const customTestTitle = useMemo(() => {
+    const raw = testMeta?.exam_config_json?.title;
+    return typeof raw === "string" ? raw.trim() : "";
+  }, [testMeta?.exam_config_json?.title]);
+
+  const subjectName = examName || (isTeacherCustomTest ? (customTestTitle || resolvedSubjectName) : resolvedSubjectName);
   const subjectIcon = testMeta?.exam_kind === "ent"
     ? assetPaths.icons.ent
     : testMeta?.exam_kind === "ielts"
       ? assetPaths.icons.ielts
       : resolveSubjectIcon(resolvedSubjectName);
-  const subjectLabel = examName ? t("Пройденный экзамен", "Өткен емтихан") : t("Пройденный предмет", "Өткен пән");
+  const subjectLabel = examName
+    ? t("Пройденный экзамен", "Өткен емтихан")
+    : isTeacherCustomTest
+      ? t("Пройденный тест", "Өткен тест")
+      : t("Пройденный предмет", "Өткен пән");
   const subjectMeta = examName
     ? `${languageLabel(testMeta?.language, uiLanguage)} · ${t("Экзамен", "Емтихан")}`
     : `${difficultyLabel(testMeta?.difficulty, uiLanguage)} ${languageLabel(testMeta?.language, uiLanguage)}`;
-  const modeMetricLabel = examName ? `${t("Формат", "Формат")}:` : `${t("Сложность", "Күрделілік")}:`;
-  const modeMetricValue = examName || difficultyLabel(testMeta?.difficulty, uiLanguage);
+  const modeMetricLabel = (examName || isTeacherCustomTest) ? `${t("Формат", "Формат")}:` : `${t("Сложность", "Күрделілік")}:`;
+  const modeMetricValue = examName || (isTeacherCustomTest ? (customTestTitle || t("Групповой тест", "Топтық тест")) : difficultyLabel(testMeta?.difficulty, uiLanguage));
   const recommendationText =
     data?.recommendation.advice_text.trim() || t("Рекомендации временно недоступны. Повторите тест или откройте историю попыток.", "Ұсыныстар уақытша қолжетімсіз. Тестті қайта өтіңіз немесе талпыныстар тарихын ашыңыз.");
   const questionMap = useMemo(() => {
@@ -160,7 +178,8 @@ export default function ResultPage() {
                     </b>
                   </p>
                   <p className={styles.metricRow}>
-                    <span>{modeMetricLabel}</span> <b>{modeMetricValue}</b>
+                    <span>{modeMetricLabel}</span>{" "}
+                    <b className={styles.modeMetricValue} title={modeMetricValue}>{modeMetricValue}</b>
                   </p>
                   <p className={styles.metricRow}>
                     <span>{t("Предупреждений", "Ескертулер")}:</span> <b>{data.result.warning_count}</b>
@@ -199,9 +218,11 @@ export default function ResultPage() {
               <Button className={styles.homeButton} onClick={() => router.push("/dashboard")}>
                 {t("На главную", "Басты бетке")}
               </Button>
-              <button className={styles.retryButton} type="button" onClick={() => router.push("/test")}>
-                {t("Пройти заново", "Қайта өту")}
-              </button>
+              {!isTeacherCustomTest ? (
+                <button className={styles.retryButton} type="button" onClick={() => router.push("/test")}>
+                  {t("Пройти заново", "Қайта өту")}
+                </button>
+              ) : null}
             </div>
 
             {error ? <p className={styles.errorText}>{error}</p> : null}
@@ -235,7 +256,7 @@ export default function ResultPage() {
             )}
           </section>
 
-          <footer className={styles.footer}>OKU.com</footer>
+          <footer className={styles.footer}>oku.com.kz</footer>
         </div>
       </AppShell>
     </AuthGuard>

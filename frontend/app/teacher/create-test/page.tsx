@@ -1,18 +1,24 @@
 "use client";
 
 import { Plus, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 
 import AppShell from "@/components/AppShell";
 import AuthGuard from "@/components/AuthGuard";
-import { createTeacherCustomTest, getTeacherGroups } from "@/lib/api";
+import {
+  createTeacherCustomTest,
+  generateTeacherCustomTestMaterial,
+  getTeacherGroups,
+  parseTeacherCustomTestFile,
+} from "@/lib/api";
 import { getToken, getUser } from "@/lib/auth";
 import { tr, useUiLanguage } from "@/lib/i18n";
-import { TeacherCustomQuestionInput, TeacherGroup } from "@/lib/types";
+import { Difficulty, TeacherCustomMaterialQuestion, TeacherCustomQuestionInput, TeacherGroup } from "@/lib/types";
 import { assetPaths } from "@/src/assets";
 import styles from "@/app/teacher/create-test/create-test.module.css";
 
 type AnswerType = "choice" | "free_text";
+type CreateMode = "manual" | "ai" | "file";
 
 interface DraftQuestion {
   id: string;
@@ -21,6 +27,7 @@ interface DraftQuestion {
   options: string[];
   correct_option_index: number | null;
   sample_answer: string;
+  image_data_url?: string | null;
 }
 
 interface DraftState {
@@ -33,6 +40,46 @@ interface DraftState {
 
 const DURATION_OPTIONS = [5, 10, 15, 20, 30, 45, 60, 90, 120];
 const WARNING_OPTIONS = [0, 1, 2, 3, 5, 10];
+const AI_QUESTION_COUNT_OPTIONS = [5, 10, 15, 20, 25, 30];
+const MAX_IMPORT_FILE_SIZE = 5 * 1024 * 1024;
+const MAX_QUESTION_IMAGE_SIZE = 1 * 1024 * 1024;
+const FILE_IMPORT_ALLOWED_EXTENSIONS = [".docx", ".csv"];
+
+function normalizeGeneratedQuestion(question: TeacherCustomMaterialQuestion, index: number): DraftQuestion {
+  const answerType: AnswerType = question.answer_type === "free_text" ? "free_text" : "choice";
+  if (answerType === "free_text") {
+    return {
+      id: `ai-q-${index}-${Math.random().toString(36).slice(2, 8)}`,
+      prompt: (question.prompt || "").trim(),
+      answer_type: "free_text",
+      options: ["", "", "", ""],
+      correct_option_index: null,
+      sample_answer: (question.sample_answer || "").trim(),
+      image_data_url: (question.image_data_url || "").trim() || null,
+    };
+  }
+
+  const options = Array.isArray(question.options)
+    ? question.options.map((item) => (item || "").trim()).filter(Boolean).slice(0, 8)
+    : [];
+  while (options.length < 4) {
+    options.push("");
+  }
+  const rawCorrectIndex = Number(question.correct_option_index ?? 0);
+  const correctOptionIndex = Number.isFinite(rawCorrectIndex) && rawCorrectIndex >= 0 && rawCorrectIndex < options.length
+    ? rawCorrectIndex
+    : 0;
+
+  return {
+    id: `ai-q-${index}-${Math.random().toString(36).slice(2, 8)}`,
+    prompt: (question.prompt || "").trim(),
+    answer_type: "choice",
+    options,
+    correct_option_index: correctOptionIndex,
+    sample_answer: "",
+    image_data_url: (question.image_data_url || "").trim() || null,
+  };
+}
 
 function createEmptyQuestion(seed = Date.now()): DraftQuestion {
   return {
@@ -42,6 +89,7 @@ function createEmptyQuestion(seed = Date.now()): DraftQuestion {
     options: ["", "", "", ""],
     correct_option_index: 0,
     sample_answer: "",
+    image_data_url: null,
   };
 }
 
@@ -95,6 +143,7 @@ function normalizeDraft(value: unknown): DraftState {
         options: options.length > 0 ? options : ["", "", "", ""],
         correct_option_index: Number.isFinite(correct) ? correct : 0,
         sample_answer: typeof row.sample_answer === "string" ? row.sample_answer : "",
+        image_data_url: typeof row.image_data_url === "string" ? row.image_data_url : null,
       };
     })
     .filter((item): item is DraftQuestion => item !== null);
@@ -161,6 +210,7 @@ function buildPayloadQuestions(
         answer_type: "choice",
         options: indexedOptions.map((item) => item.text),
         correct_option_index: normalizedCorrectIndex,
+        image_data_url: question.image_data_url || undefined,
       };
     }
 
@@ -178,6 +228,7 @@ function buildPayloadQuestions(
       prompt,
       answer_type: "free_text",
       sample_answer: sampleAnswer,
+      image_data_url: question.image_data_url || undefined,
     };
   });
 }
@@ -195,12 +246,22 @@ export default function TeacherCreateTestPage() {
   const t = (ru: string, kz: string) => tr(uiLanguage, ru, kz);
 
   const [draft, setDraft] = useState<DraftState>(createInitialDraft);
+  const [createMode, setCreateMode] = useState<CreateMode>("manual");
+  const [aiDifficulty, setAiDifficulty] = useState<Difficulty>("medium");
+  const [aiQuestionsCount, setAiQuestionsCount] = useState<number>(10);
+  const [materialGenerated, setMaterialGenerated] = useState(false);
+  const [generatingMaterial, setGeneratingMaterial] = useState(false);
+  const [generationProgress, setGenerationProgress] = useState(0);
+  const [selectedImportFile, setSelectedImportFile] = useState<File | null>(null);
+  const [parsingImportFile, setParsingImportFile] = useState(false);
+  const [parsedImportFilename, setParsedImportFilename] = useState<string>("");
   const [groups, setGroups] = useState<TeacherGroup[]>([]);
   const [selectedGroupIds, setSelectedGroupIds] = useState<number[]>([]);
   const [loadingGroups, setLoadingGroups] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [createdSuccessModalOpen, setCreatedSuccessModalOpen] = useState(false);
 
   const totalQuestions = draft.questions.length;
 
@@ -215,6 +276,18 @@ export default function TeacherCreateTestPage() {
     if (draft.questions.length >= 9 || freeTextCount >= 3) return t("Средний", "Орташа");
     return t("Легкий", "Жеңіл");
   }, [draft.questions, t]);
+
+  const aiDifficultyLabel = useMemo(() => {
+    if (aiDifficulty === "hard") return t("Сложный", "Күрделі");
+    if (aiDifficulty === "medium") return t("Средний", "Орташа");
+    return t("Легкий", "Жеңіл");
+  }, [aiDifficulty, t]);
+
+  const effectiveDifficultyLabel = createMode === "ai" ? aiDifficultyLabel : difficultyLabel;
+  const createDisabled = submitting || ((createMode === "ai" || createMode === "file") && !materialGenerated);
+  const generationProgressStyle = {
+    "--generation-progress": `${Math.max(0, Math.min(100, generationProgress))}%`,
+  } as CSSProperties;
 
   useEffect(() => {
     const key = toDraftStorageKey();
@@ -239,6 +312,23 @@ export default function TeacherCreateTestPage() {
   }, [draft]);
 
   useEffect(() => {
+    if (!generatingMaterial) {
+      return;
+    }
+    setGenerationProgress(6);
+    const timer = setInterval(() => {
+      setGenerationProgress((prev) => {
+        if (prev >= 92) return prev;
+        const delta = Math.max(0.6, (92 - prev) * 0.08);
+        return Math.min(92, Number((prev + delta).toFixed(1)));
+      });
+    }, 220);
+    return () => {
+      clearInterval(timer);
+    };
+  }, [generatingMaterial]);
+
+  useEffect(() => {
     const token = getToken();
     if (!token) return;
 
@@ -246,7 +336,7 @@ export default function TeacherCreateTestPage() {
     (async () => {
       try {
         setLoadingGroups(true);
-        const payload = await getTeacherGroups(token, { force: true });
+        const payload = await getTeacherGroups(token);
         if (cancelled) return;
         setGroups(payload);
       } catch (requestError) {
@@ -266,7 +356,7 @@ export default function TeacherCreateTestPage() {
     return () => {
       cancelled = true;
     };
-  }, [uiLanguage]);
+  }, []);
 
   const updateQuestion = (questionId: string, updater: (question: DraftQuestion) => DraftQuestion) => {
     setDraft((prev) => ({
@@ -309,8 +399,193 @@ export default function TeacherCreateTestPage() {
   const clearDraft = () => {
     setDraft(createInitialDraft());
     setSelectedGroupIds([]);
+    setMaterialGenerated(false);
+    setSelectedImportFile(null);
+    setParsedImportFilename("");
     setError("");
     setSuccess("");
+    setCreatedSuccessModalOpen(false);
+  };
+
+  const setMode = (mode: CreateMode) => {
+    setCreateMode(mode);
+    setError("");
+    setSuccess("");
+    if (mode === "manual") {
+      return;
+    }
+    setMaterialGenerated(false);
+    if (mode !== "file") {
+      setSelectedImportFile(null);
+      setParsedImportFilename("");
+    }
+  };
+
+  const generateMaterial = async () => {
+    const token = getToken();
+    if (!token) return;
+
+    const topic = draft.title.trim();
+    if (!topic) {
+      setError(t("Сначала введите тему для AI-генерации.", "Алдымен AI генерация үшін тақырып енгізіңіз."));
+      return;
+    }
+
+    setError("");
+    setSuccess("");
+    setGenerationProgress(0);
+    setGeneratingMaterial(true);
+
+    try {
+      const payload = await generateTeacherCustomTestMaterial(token, {
+        topic,
+        difficulty: aiDifficulty,
+        questions_count: aiQuestionsCount,
+        language: uiLanguage === "KZ" ? "KZ" : "RU",
+      });
+
+      const mappedQuestions = payload.questions.map((item, index) => normalizeGeneratedQuestion(item, index));
+      if (mappedQuestions.length === 0) {
+        setError(t("AI не вернул корректный материал. Попробуйте снова.", "AI дұрыс материал қайтармады. Қайталап көріңіз."));
+        setMaterialGenerated(false);
+        return;
+      }
+
+      setDraft((prev) => ({
+        ...prev,
+        title: payload.topic,
+        questions: mappedQuestions,
+      }));
+      setMaterialGenerated(true);
+      setGenerationProgress(100);
+      setSuccess(
+        t(
+          `Материал сгенерирован: ${mappedQuestions.length} вопросов. Проверьте и при необходимости отредактируйте.`,
+          `Материал жасалды: ${mappedQuestions.length} сұрақ. Тексеріп, қажет болса өңдеңіз.`,
+        ),
+      );
+    } catch (requestError) {
+      setMaterialGenerated(false);
+      setGenerationProgress(0);
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : t("Не удалось сгенерировать материал.", "Материалды генерациялау мүмкін болмады."),
+      );
+    } finally {
+      setGeneratingMaterial(false);
+      setTimeout(() => {
+        setGenerationProgress(0);
+      }, 250);
+    }
+  };
+
+  const parseFileMaterial = async () => {
+    const token = getToken();
+    if (!token) return;
+
+    if (!selectedImportFile) {
+      setError(t("Сначала прикрепите файл шаблона.", "Алдымен шаблон файлын тіркеңіз."));
+      return;
+    }
+
+    setError("");
+    setSuccess("");
+    setParsingImportFile(true);
+    try {
+      const payload = await parseTeacherCustomTestFile(token, selectedImportFile);
+      const mappedQuestions = payload.questions.map((item, index) => normalizeGeneratedQuestion(item, index));
+      if (mappedQuestions.length === 0) {
+        throw new Error(t("Файл не содержит корректных вопросов.", "Файлда дұрыс сұрақтар жоқ."));
+      }
+
+      const fallbackTitle = selectedImportFile.name.replace(/\.[^.]+$/, "").trim();
+      setDraft((prev) => ({
+        ...prev,
+        title: prev.title.trim() || fallbackTitle,
+        questions: mappedQuestions,
+      }));
+      setMaterialGenerated(true);
+      setParsedImportFilename(payload.source_filename || selectedImportFile.name);
+      setSuccess(
+        t(
+          `Файл преобразован: ${mappedQuestions.length} вопросов. Проверьте и при необходимости отредактируйте.`,
+          `Файл түрлендірілді: ${mappedQuestions.length} сұрақ. Тексеріп, қажет болса өңдеңіз.`,
+        ),
+      );
+    } catch (requestError) {
+      setMaterialGenerated(false);
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : t("Не удалось преобразовать файл.", "Файлды түрлендіру мүмкін болмады."),
+      );
+    } finally {
+      setParsingImportFile(false);
+    }
+  };
+
+  const handleImportFileChange = (nextFile: File | null) => {
+    if (!nextFile) {
+      setSelectedImportFile(null);
+      setParsedImportFilename("");
+      setMaterialGenerated(false);
+      return;
+    }
+
+    const normalizedName = nextFile.name.trim().toLowerCase();
+    const hasAllowedExtension = FILE_IMPORT_ALLOWED_EXTENSIONS.some((ext) => normalizedName.endsWith(ext));
+    if (!hasAllowedExtension) {
+      setError(t("Поддерживаются только файлы .docx и .csv.", "Тек .docx және .csv файлдары қолдау көрсетіледі."));
+      setSelectedImportFile(null);
+      setMaterialGenerated(false);
+      return;
+    }
+    if (nextFile.size > MAX_IMPORT_FILE_SIZE) {
+      setError(t("Размер файла превышает 5MB.", "Файл өлшемі 5MB-тан асады."));
+      setSelectedImportFile(null);
+      setMaterialGenerated(false);
+      return;
+    }
+
+    setError("");
+    setSuccess("");
+    setSelectedImportFile(nextFile);
+    setParsedImportFilename("");
+    setMaterialGenerated(false);
+  };
+
+  const handleQuestionImageChange = (questionId: string, nextFile: File | null) => {
+    if (!nextFile) {
+      return;
+    }
+    const normalizedType = (nextFile.type || "").toLowerCase();
+    if (!normalizedType.startsWith("image/")) {
+      setError(t("Можно прикреплять только изображения.", "Тек сурет файлдарын тіркеуге болады."));
+      return;
+    }
+    if (nextFile.size > MAX_QUESTION_IMAGE_SIZE) {
+      setError(t("Размер изображения превышает 1MB.", "Сурет көлемі 1MB-тан асады."));
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const value = typeof reader.result === "string" ? reader.result : "";
+      if (!value) {
+        setError(t("Не удалось прочитать изображение.", "Суретті оқу мүмкін болмады."));
+        return;
+      }
+      updateQuestion(questionId, (prev) => ({
+        ...prev,
+        image_data_url: value,
+      }));
+      setError("");
+    };
+    reader.onerror = () => {
+      setError(t("Не удалось прочитать изображение.", "Суретті оқу мүмкін болмады."));
+    };
+    reader.readAsDataURL(nextFile);
   };
 
   const submitCustomTest = async () => {
@@ -323,6 +598,16 @@ export default function TeacherCreateTestPage() {
     const normalizedTitle = draft.title.trim();
     if (!normalizedTitle) {
       setError(t("Введите тему теста.", "Тест тақырыбын енгізіңіз."));
+      return;
+    }
+
+    if (createMode === "ai" && !materialGenerated) {
+      setError(
+        t(
+          "Сначала нажмите «Сгенерировать материал», затем проверьте вопросы.",
+          "Алдымен «Материалды генерациялау» батырмасын басып, сұрақтарды тексеріңіз.",
+        ),
+      );
       return;
     }
 
@@ -365,18 +650,15 @@ export default function TeacherCreateTestPage() {
         title: normalizedTitle,
         duration_minutes: draft.duration_minutes,
         warning_limit: draft.warning_limit,
+        due_date: draft.due_date || null,
         group_ids: selectedExistingGroupIds,
         questions: payloadQuestions,
       });
 
-      setSuccess(
-        t(
-          `Тест «${created.title}» создан. Вопросов: ${created.questions_count}.`,
-          `«${created.title}» тесті құрылды. Сұрақтар: ${created.questions_count}.`,
-        ),
-      );
+      setSuccess("");
       setDraft(createInitialDraft());
       setSelectedGroupIds([]);
+      setCreatedSuccessModalOpen(true);
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -408,27 +690,194 @@ export default function TeacherCreateTestPage() {
               </header>
 
               <section className={styles.heroPanel}>
-                <label className={styles.heroLabel}>
-                  {t("Тема", "Тақырып")}
-                  <input
-                    className={styles.heroInput}
-                    placeholder={t("Например: Алгебра — степени", "Мысалы: Алгебра — дәреже")}
-                    value={draft.title}
-                    onChange={(event) =>
-                      setDraft((prev) => ({
-                        ...prev,
-                        title: event.target.value,
-                      }))
-                    }
-                    maxLength={160}
+                <div className={styles.modeSwitch} role="tablist" aria-label={t("Режим создания теста", "Тест құру режимі")}>
+                  <span
+                    className={`${styles.modeSwitchIndicator} ${
+                      createMode === "manual"
+                        ? styles.modeSwitchIndicatorLeft
+                        : createMode === "ai"
+                          ? styles.modeSwitchIndicatorMiddle
+                          : styles.modeSwitchIndicatorRight
+                    }`}
+                    aria-hidden="true"
                   />
-                </label>
+                  <button
+                    className={`${styles.modeSwitchButton} ${createMode === "manual" ? styles.modeSwitchButtonActive : ""}`}
+                    onClick={() => setMode("manual")}
+                    type="button"
+                  >
+                    {t("Создать вручную", "Қолмен құру")}
+                  </button>
+                  <button
+                    className={`${styles.modeSwitchButton} ${createMode === "ai" ? styles.modeSwitchButtonActive : ""}`}
+                    onClick={() => setMode("ai")}
+                    type="button"
+                  >
+                    {t("Создать с AI", "AI арқылы құру")}
+                  </button>
+                  <button
+                    className={`${styles.modeSwitchButton} ${createMode === "file" ? styles.modeSwitchButtonActive : ""}`}
+                    onClick={() => setMode("file")}
+                    type="button"
+                  >
+                    {t("Создать из файла", "Файлдан құру")}
+                  </button>
+                </div>
+
+                <div key={createMode} className={styles.modeContent}>
+                  {createMode === "ai" ? (
+                    <>
+                      <p className={styles.aiHint}>
+                        {t(
+                          "Настройте ключевые параметры: AI сгенерирует вопросы и варианты ответов по теме.",
+                          "Негізгі параметрлерді орнатыңыз: AI тақырып бойынша сұрақтар мен жауап нұсқаларын жасайды.",
+                        )}
+                      </p>
+
+                      <label className={styles.heroLabel}>
+                        {t("Тема", "Тақырып")}
+                        <input
+                          className={styles.heroInput}
+                          placeholder={t("Например: Алгебра — степени", "Мысалы: Алгебра — дәреже")}
+                          value={draft.title}
+                          onChange={(event) => {
+                            setDraft((prev) => ({
+                              ...prev,
+                              title: event.target.value,
+                            }));
+                            setMaterialGenerated(false);
+                          }}
+                          maxLength={160}
+                        />
+                      </label>
+
+                      <div className={styles.aiMetaGrid}>
+                        <label className={styles.heroLabel}>
+                          {t("Сложность", "Күрделілік")}
+                          <select
+                            className={`${styles.heroInput} ${styles.heroSelect}`}
+                            value={aiDifficulty}
+                            onChange={(event) => {
+                              setAiDifficulty(event.target.value as Difficulty);
+                              setMaterialGenerated(false);
+                            }}
+                          >
+                            <option value="easy">{t("Легкий", "Жеңіл")}</option>
+                            <option value="medium">{t("Средний", "Орташа")}</option>
+                            <option value="hard">{t("Сложный", "Күрделі")}</option>
+                          </select>
+                        </label>
+
+                        <label className={styles.heroLabel}>
+                          {t("Количество вопросов", "Сұрақ саны")}
+                          <select
+                            className={`${styles.heroInput} ${styles.heroSelect}`}
+                            value={aiQuestionsCount}
+                            onChange={(event) => {
+                              setAiQuestionsCount(Number(event.target.value));
+                              setMaterialGenerated(false);
+                            }}
+                          >
+                            {AI_QUESTION_COUNT_OPTIONS.map((value) => (
+                              <option key={value} value={value}>
+                                {value}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
+
+                      <div
+                        className={`${styles.generateButtonProgress} ${generatingMaterial ? styles.generateButtonProgressActive : ""}`}
+                        style={generationProgressStyle}
+                      >
+                        <button
+                          className={styles.generateButton}
+                          disabled={generatingMaterial}
+                          onClick={() => void generateMaterial()}
+                          type="button"
+                        >
+                          <img alt="" aria-hidden="true" src={assetPaths.icons.aiGenerate} />
+                          <span>
+                            {generatingMaterial
+                              ? t("Генерируем материал...", "Материал жасалып жатыр...")
+                              : t("Сгенерировать материал", "Материалды генерациялау")}
+                          </span>
+                        </button>
+                      </div>
+                    </>
+                  ) : createMode === "file" ? (
+                    <>
+                      <p className={styles.aiHint}>
+                        {t(
+                          "Прикрепите шаблонный файл .docx или .csv с вопросами. Размер файла до 5MB.",
+                          "Сұрақтары бар .docx немесе .csv шаблон файлын тіркеңіз. Файл көлемі 5MB-қа дейін.",
+                        )}
+                      </p>
+
+                      <label className={styles.fileUploadArea}>
+                        <input
+                          accept=".docx,.csv"
+                          className={styles.fileInput}
+                          onChange={(event) => handleImportFileChange(event.target.files?.[0] ?? null)}
+                          type="file"
+                        />
+                        <img alt="" aria-hidden="true" src={assetPaths.icons.attachFile} />
+                        <div className={styles.fileUploadText}>
+                          <strong>
+                            {selectedImportFile
+                              ? selectedImportFile.name
+                              : t("Прикрепить файл", "Файлды тіркеу")}
+                          </strong>
+                          <span>{t("до 5MB", "5MB дейін")}</span>
+                        </div>
+                      </label>
+
+                      <button
+                        className={`${styles.generateButton} ${styles.generateButtonSolid}`}
+                        disabled={parsingImportFile || !selectedImportFile}
+                        onClick={() => void parseFileMaterial()}
+                        type="button"
+                      >
+                        <img alt="" aria-hidden="true" src={assetPaths.icons.aiGenerate} />
+                        <span>
+                          {parsingImportFile
+                            ? t("Преобразуем файл...", "Файл түрлендірілуде...")
+                            : t("Преобразовать файл", "Файлды түрлендіру")}
+                        </span>
+                      </button>
+                      {parsedImportFilename ? (
+                        <p className={styles.aiHint}>
+                          {t("Файл обработан:", "Файл өңделді:")} {parsedImportFilename}
+                        </p>
+                      ) : null}
+                    </>
+                  ) : (
+                    <label className={styles.heroLabel}>
+                      {t("Тема", "Тақырып")}
+                      <input
+                        className={styles.heroInput}
+                        placeholder={t("Например: Алгебра — степени", "Мысалы: Алгебра — дәреже")}
+                        value={draft.title}
+                        onChange={(event) =>
+                          setDraft((prev) => ({
+                            ...prev,
+                            title: event.target.value,
+                          }))
+                        }
+                        maxLength={160}
+                      />
+                    </label>
+                  )}
+                </div>
+
+                <div className={`${styles.heroDivider} ${createMode !== "manual" ? styles.heroDividerVisible : ""}`} />
 
                 <div className={styles.heroMetaGrid}>
                   <label className={styles.heroLabel}>
                     {t("Длительность", "Ұзақтығы")}
                     <select
-                      className={styles.heroInput}
+                      className={`${styles.heroInput} ${styles.heroSelect}`}
                       value={draft.duration_minutes}
                       onChange={(event) =>
                         setDraft((prev) => ({
@@ -448,7 +897,7 @@ export default function TeacherCreateTestPage() {
                   <label className={styles.heroLabel}>
                     {t("Лимит предупреждений", "Ескерту лимиті")}
                     <select
-                      className={styles.heroInput}
+                      className={`${styles.heroInput} ${styles.heroSelect}`}
                       value={draft.warning_limit}
                       onChange={(event) =>
                         setDraft((prev) => ({
@@ -486,7 +935,7 @@ export default function TeacherCreateTestPage() {
                   <div className={styles.heroStats}>
                     <article className={styles.statItem}>
                       <span>{t("Ваш тест распознан как", "Тест анықталды")}</span>
-                      <strong>{difficultyLabel}</strong>
+                      <strong>{effectiveDifficultyLabel}</strong>
                     </article>
                     <article className={styles.statItem}>
                       <span>{t("Вопросов", "Сұрақтар")}</span>
@@ -500,8 +949,12 @@ export default function TeacherCreateTestPage() {
                 </div>
 
                 <div className={styles.heroActions}>
-                  <button className={styles.createButton} disabled={submitting} onClick={() => void submitCustomTest()} type="button">
-                    {submitting ? t("Создаем...", "Құрылуда...") : t("Создать тест", "Тест құру")}
+                  <button className={styles.createButton} disabled={createDisabled} onClick={() => void submitCustomTest()} type="button">
+                    {submitting
+                      ? t("Создаем...", "Құрылуда...")
+                      : (createMode === "ai" || createMode === "file") && !materialGenerated
+                        ? t("Подготовьте материал", "Материалды дайындаңыз")
+                        : t("Создать тест", "Тест құру")}
                   </button>
                   <button className={styles.clearButton} onClick={clearDraft} type="button">
                     {t("Очистить форму", "Форманы тазалау")}
@@ -607,6 +1060,41 @@ export default function TeacherCreateTestPage() {
                     value={question.prompt}
                   />
 
+                  {question.image_data_url ? (
+                    <div className={styles.questionImagePreview}>
+                      <img alt={t("Иллюстрация к вопросу", "Сұрақ иллюстрациясы")} src={question.image_data_url} />
+                      <button
+                        className={styles.removeImageButton}
+                        onClick={() =>
+                          updateQuestion(question.id, (prev) => ({
+                            ...prev,
+                            image_data_url: null,
+                          }))
+                        }
+                        type="button"
+                      >
+                        {t("Удалить фото", "Фотоны жою")}
+                      </button>
+                    </div>
+                  ) : (
+                    <label className={styles.questionImageUpload}>
+                      <input
+                        accept="image/*"
+                        className={styles.fileInput}
+                        onChange={(event) => {
+                          handleQuestionImageChange(question.id, event.target.files?.[0] ?? null);
+                          event.currentTarget.value = "";
+                        }}
+                        type="file"
+                      />
+                      <img alt="" aria-hidden="true" src={assetPaths.icons.attachFile} />
+                      <div className={`${styles.fileUploadText} ${styles.questionUploadText}`}>
+                        <strong>{t("Прикрепить фото", "Фото тіркеу")}</strong>
+                        <span>{t("до 1MB", "1MB дейін")}</span>
+                      </div>
+                    </label>
+                  )}
+
                   {question.answer_type === "choice" ? (
                     <div className={styles.choiceList}>
                       {question.options.map((option, optionIndex) => {
@@ -685,8 +1173,19 @@ export default function TeacherCreateTestPage() {
             </button>
           </section>
 
-          <footer className={styles.footer}>OKU.com.kz</footer>
+          <footer className={styles.footer}>oku.com.kz</footer>
         </div>
+        {createdSuccessModalOpen ? (
+          <div className={styles.successOverlay} role="dialog" aria-modal="true" aria-label={t("Тест успешно создан", "Тест сәтті құрылды")}>
+            <div className={styles.successModal}>
+              <img alt="" aria-hidden="true" className={styles.successModalIcon} src={assetPaths.icons.testCreated} />
+              <p className={styles.successModalTitle}>{t("Тест успешно создан", "Тест сәтті құрылды")}</p>
+              <button className={styles.successModalButton} onClick={() => setCreatedSuccessModalOpen(false)} type="button">
+                {t("Продолжить", "Жалғастыру")}
+              </button>
+            </div>
+          </div>
+        ) : null}
       </AppShell>
     </AuthGuard>
   );

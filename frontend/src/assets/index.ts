@@ -1,4 +1,4 @@
-const ICONS_VERSION = "20260302-1";
+const ICONS_VERSION = "20260302-2";
 const ILLUSTRATIONS_VERSION = "20260301-2";
 
 export const assetPaths = {
@@ -35,6 +35,14 @@ export const assetPaths = {
     student: `/assets/icons/material-symbols_group-rounded-1.svg?v=${ICONS_VERSION}`,
     groupEdit: `/assets/icons/cuida_edit-outline.svg?v=${ICONS_VERSION}`,
     groupDelete: `/assets/icons/mdi_trash.svg?v=${ICONS_VERSION}`,
+    sidebarArrow: `/assets/icons/arrow.svg?v=${ICONS_VERSION}`,
+    questionAnswer: `/assets/icons/ic_round-question-answer.svg?v=${ICONS_VERSION}`,
+    warningDiamond: `/assets/icons/mynaui_danger-diamond-solid.svg?v=${ICONS_VERSION}`,
+    schedule: `/assets/icons/uis_schedule.svg?v=${ICONS_VERSION}`,
+    aiGenerate: `/assets/icons/octicon_north-star-16.svg?v=${ICONS_VERSION}`,
+    attachFile: `/assets/icons/tabler_link.svg?v=${ICONS_VERSION}`,
+    testCreated: `/assets/icons/icon-park-solid_inbox-success.svg?v=${ICONS_VERSION}`,
+    testPassed: `/assets/icons/icon-park-solid_success.svg?v=${ICONS_VERSION}`,
   },
   images: {
     parchment: "/assets/images/bg-parchment.svg",

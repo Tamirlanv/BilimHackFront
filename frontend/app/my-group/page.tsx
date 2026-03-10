@@ -8,7 +8,7 @@ import AuthGuard from "@/components/AuthGuard";
 import { generateGroupAssignedTest, getStudentGroupTests } from "@/lib/api";
 import { getToken } from "@/lib/auth";
 import { GroupAssignedTest } from "@/lib/types";
-import { tr, useUiLanguage } from "@/lib/i18n";
+import { tr, uiLocale, useUiLanguage } from "@/lib/i18n";
 import { assetPaths } from "@/src/assets";
 import styles from "@/app/my-group/my-group.module.css";
 
@@ -31,7 +31,7 @@ export default function MyGroupPage() {
       try {
         setLoading(true);
         setError("");
-        const payload = await getStudentGroupTests(token, { force: true });
+        const payload = await getStudentGroupTests(token);
         if (!isCancelled) {
           setTests(payload);
         }
@@ -67,7 +67,7 @@ export default function MyGroupPage() {
     return () => {
       isCancelled = true;
     };
-  }, [uiLanguage]);
+  }, []);
 
   const groupName = useMemo(() => {
     if (tests.length === 0) return t("Моя группа", "Менің тобым");
@@ -114,36 +114,88 @@ export default function MyGroupPage() {
             ) : (
               <div className={styles.cards}>
                 {tests.map((test) => (
-                  <button
-                    key={test.custom_test_id}
-                    type="button"
-                    className={styles.card}
-                    onClick={() => void startGroupTest(test.custom_test_id)}
-                    disabled={startingTestId === test.custom_test_id}
-                  >
-                    <img className={styles.icon} src={assetPaths.icons.group} alt="" aria-hidden="true" />
-                    <div className={styles.body}>
-                      <h3 className={styles.title}>{test.title}</h3>
-                      <p className={styles.description}>
-                        {t("Вопросов", "Сұрақтар")}: {test.questions_count}
-                      </p>
-                      <p className={styles.meta}>
-                        {t("Лимит", "Лимит")}: {test.duration_minutes} {t("мин", "мин")} ·{" "}
-                        {t("Предупреждений", "Ескертулер")}: {test.warning_limit}
-                      </p>
-                      <p className={styles.meta}>
-                        {t("Учитель", "Мұғалім")}: {test.teacher_name}
-                      </p>
+                  <article key={test.custom_test_id} className={styles.card}>
+                    <header className={styles.cardTop}>
+                      <span className={styles.dayLabel}>{formatRelativeDay(test.created_at, uiLanguage)}</span>
+                      <span className={styles.dateLabel}>
+                        <img src={assetPaths.icons.schedule} alt="" aria-hidden />
+                        {formatCompactDate(test.due_date || test.created_at, uiLanguage)}
+                      </span>
+                    </header>
+
+                    <div className={styles.cardBody}>
+                      <img className={styles.icon} src={assetPaths.icons.informatics} alt="" aria-hidden="true" />
+                      <div className={styles.body}>
+                        <h3 className={styles.title}>{test.title}</h3>
+                        <p className={styles.description}>
+                          {t("Вопросов", "Сұрақтар")}: {test.questions_count}
+                        </p>
+                        <p className={styles.meta}>
+                          {t("Предупреждений", "Ескертулер")}: {test.warning_limit}
+                        </p>
+                        <p className={styles.meta}>
+                          {t("Учитель", "Мұғалім")}: {test.teacher_name}
+                        </p>
+                      </div>
                     </div>
-                  </button>
+
+                    {test.is_completed ? (
+                      <div className={styles.completedRow}>
+                        <span className={styles.completedTag}>
+                          <img src={assetPaths.icons.testPassed} alt="" aria-hidden />
+                          {t("Пройдено", "Өтілді")}
+                        </span>
+                        <span className={styles.completedScore}>
+                          {t("Результат", "Нәтиже")}: {formatPercent(test.completed_percent)}
+                        </span>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        className={styles.startButton}
+                        onClick={() => void startGroupTest(test.custom_test_id)}
+                        disabled={startingTestId === test.custom_test_id}
+                      >
+                        {startingTestId === test.custom_test_id ? t("Запускаем...", "Іске қосылуда...") : t("Пройти тест", "Тест тапсыру")}
+                      </button>
+                    )}
+                  </article>
                 ))}
               </div>
             )}
           </section>
 
-          <footer className={styles.footer}>OKU.com.kz</footer>
+          <footer className={styles.footer}>oku.com.kz</footer>
         </div>
       </AppShell>
     </AuthGuard>
   );
+}
+
+function formatPercent(value?: number | null): string {
+  if (value === null || value === undefined || Number.isNaN(value)) return "–";
+  const rounded = Math.round(value * 10) / 10;
+  return `${Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1)}%`;
+}
+
+function formatRelativeDay(input: string, language: "RU" | "KZ"): string {
+  const date = new Date(input);
+  if (Number.isNaN(date.getTime())) return language === "KZ" ? "Бүгін" : "Сегодня";
+  const now = new Date();
+  const currentDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const valueDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const diffDays = Math.round((currentDay.getTime() - valueDay.getTime()) / 86_400_000);
+  if (diffDays <= 0) return language === "KZ" ? "Бүгін" : "Сегодня";
+  if (diffDays === 1) return language === "KZ" ? "Кеше" : "Вчера";
+  return date.toLocaleDateString(uiLocale(language), { day: "2-digit", month: "2-digit", year: "2-digit" });
+}
+
+function formatCompactDate(input: string, language: "RU" | "KZ"): string {
+  const date = new Date(input);
+  if (Number.isNaN(date.getTime())) return "–";
+  return date.toLocaleDateString(uiLocale(language), {
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit",
+  });
 }

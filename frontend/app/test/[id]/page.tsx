@@ -680,6 +680,15 @@ export default function TestRunnerPage() {
           <Card title={t("Вопрос", "Сұрақ")}>
             <div className={styles.questionWrap}>
               <h3 className={styles.questionTitle}>{sanitizeQuestionPrompt(question.prompt)}</h3>
+              {question.options_json?.image_data_url ? (
+                <div className={styles.questionImageWrap}>
+                  <img
+                    alt={t("Иллюстрация к вопросу", "Сұрақ иллюстрациясы")}
+                    className={styles.questionImage}
+                    src={question.options_json.image_data_url}
+                  />
+                </div>
+              ) : null}
 
               {test.mode === "audio" && (
                 <div className={styles.audioControls}>

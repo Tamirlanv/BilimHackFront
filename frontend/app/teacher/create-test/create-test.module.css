@@ -6,6 +6,7 @@
   gap: 32px;
   padding-bottom: 56px;
   min-width: 0;
+  overflow-x: hidden;
 }
 
 .headerGrid {
@@ -33,7 +34,7 @@
 .subtitle {
   margin: 0;
   color: var(--ink-muted);
-  font-size: 16px;
+  font-size: 14px;
   line-height: 1.35;
   font-weight: 350;
 }
@@ -71,6 +72,221 @@
   padding: 24px;
   display: grid;
   gap: 24px;
+  overflow: hidden;
+}
+
+.modeSwitch {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: center;
+  border-radius: 999px;
+  border: none;
+  background: #ffffff;
+  padding: 2px;
+  overflow: hidden;
+}
+
+.modeSwitchIndicator {
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  bottom: 2px;
+  width: calc((100% - 4px) / 3);
+  border-radius: 999px;
+  background: #6a63f5;
+  border: none;
+  transition: transform 0.42s cubic-bezier(0.2, 0.72, 0.2, 1);
+  z-index: 0;
+}
+
+.modeSwitchIndicatorLeft {
+  transform: translateX(0);
+}
+
+.modeSwitchIndicatorMiddle {
+  transform: translateX(100%);
+}
+
+.modeSwitchIndicatorRight {
+  transform: translateX(200%);
+}
+
+.modeSwitchButton {
+  position: relative;
+  z-index: 1;
+  border: none;
+  background: transparent;
+  color: #6a63f5;
+  font-size: 16px;
+  font-weight: 350;
+  height: 42px;
+  cursor: pointer;
+  transition: color 0.26s ease;
+}
+
+.modeSwitchButtonActive {
+  color: #ffffff;
+  font-weight: 500;
+}
+
+.modeContent {
+  display: grid;
+  gap: 14px;
+  animation: modeContentEnter 0.34s cubic-bezier(0.2, 0.72, 0.2, 1);
+}
+
+@keyframes modeContentEnter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.aiHint {
+  margin: 0;
+  color: #d8d4ff;
+  font-size: 14px;
+  line-height: 1.25;
+  font-weight: 350;
+}
+
+.aiMetaGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.fileUploadArea {
+  border: 1px dashed rgba(255, 255, 255, 0.6);
+  border-radius: 14px;
+  min-height: 86px;
+  display: grid;
+  place-items: center;
+  gap: 6px;
+  padding: 12px;
+  cursor: pointer;
+}
+
+.fileInput {
+  display: none;
+}
+
+.fileUploadArea img {
+  width: 16px;
+  height: 16px;
+}
+
+.fileUploadText {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  text-align: center;
+}
+
+.fileUploadText strong {
+  color: #ffffff;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.fileUploadText span {
+  color: #d8d4ff;
+  font-size: 14px;
+  font-weight: 350;
+}
+
+.generateButton {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  height: 44px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: #6a63f5;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 16px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.generateButtonSolid {
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+.generateButtonProgress {
+  position: relative;
+  border-radius: 12px;
+  padding: 2px;
+  background: rgba(255, 255, 255, 0.18);
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.generateButtonProgress::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  z-index: 0;
+  background: conic-gradient(
+    from -90deg,
+    #ffffff 0 var(--generation-progress, 0%),
+    rgba(255, 255, 255, 0.28) var(--generation-progress, 0%) 100%
+  );
+  opacity: 0.36;
+  transition: opacity 0.18s ease;
+}
+
+.generateButtonProgress::after {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  border-radius: 10px;
+  background: #ffffff;
+  z-index: 1;
+}
+
+.generateButtonProgressActive::before {
+  opacity: 1;
+}
+
+.generateButton img {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+
+.generateButton:hover {
+  opacity: 0.95;
+}
+
+.generateButton:disabled {
+  opacity: 0.72;
+  cursor: wait;
+}
+
+.heroDivider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.36);
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+
+.heroDividerVisible {
+  opacity: 1;
 }
 
 .heroLabel {
@@ -88,8 +304,9 @@
   width: 100%;
   min-width: 0;
   max-width: 100%;
-  height: 48px;
-  border: none;
+  height: 44px;
+  border: 1px solid transparent;
+  box-sizing: border-box;
   border-radius: 12px;
   background: #ffffff;
   color: #6a63f5;
@@ -104,11 +321,43 @@
 }
 
 .heroInput:focus {
-  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.28);
+  outline: none;
+  border-color: rgba(106, 99, 245, 0.8);
+  box-shadow: none;
 }
 
 .heroInput[type="date"] {
   display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  -webkit-min-logical-width: 0;
+  padding-right: 40px;
+}
+
+.heroInput[type="date"]::-webkit-date-and-time-value {
+  text-align: left;
+}
+
+.heroInput[type="date"]::-webkit-calendar-picker-indicator {
+  margin: 0;
+}
+
+.heroSelect {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  height: 44px;
+  line-height: 1.2;
+  padding-right: 42px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%236A63F5' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  background-size: 14px 14px;
+}
+
+.heroSelect::-ms-expand {
+  display: none;
 }
 
 .heroMetaGrid {
@@ -117,9 +366,17 @@
   gap: 24px;
 }
 
+.heroMetaGrid > * {
+  min-width: 0;
+}
+
 .heroMetaGrid .heroInput {
-  height: 40px;
+  height: 44px;
   font-size: 14px;
+}
+
+.heroMetaGrid .heroSelect {
+  height: 44px;
 }
 
 .heroSummaryTitle {
@@ -186,8 +443,16 @@
 }
 
 .createButton:disabled {
-  opacity: 0.7;
-  cursor: wait;
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.92);
+  color: #5b54e6;
+  border: 1px solid rgba(106, 99, 245, 0.38);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+  cursor: not-allowed;
+}
+
+.createButton:disabled:hover {
+  opacity: 1;
 }
 
 .clearButton {
@@ -226,7 +491,8 @@
   padding: 18px;
   text-align: left;
   cursor: pointer;
-  box-shadow: var(--shadow-soft);
+  box-shadow: none;
+  border: none;
   transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
@@ -425,8 +691,7 @@
 }
 
 .choiceRow {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  display: flex;
   align-items: center;
   gap: 12px;
   height: 44px;
@@ -436,9 +701,7 @@
 }
 
 .choiceRadio {
-  position: absolute;
-  opacity: 0;
-  pointer-events: none;
+  display: none;
 }
 
 .choiceDot {
@@ -455,9 +718,9 @@
 }
 
 .choiceInput {
-  width: 100%;
+  flex: 1 1 auto;
   min-width: 0;
-  height: 100%;
+  height: auto;
   border: none;
   border-radius: 0;
   padding: 0;
@@ -501,6 +764,122 @@
   font-weight: 600;
 }
 
+.questionImagePreview {
+  border: 1px dashed #d8daf0;
+  border-radius: 12px;
+  padding: 8px;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.questionImagePreview img {
+  max-height: 180px;
+  width: auto;
+  max-width: 100%;
+  border-radius: 8px;
+}
+
+.questionImageUpload {
+  border: 1px dashed #d8daf0;
+  border-radius: 12px;
+  min-height: 74px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  align-content: center;
+  text-align: center;
+  gap: 6px;
+  padding: 10px;
+  cursor: pointer;
+}
+
+.questionImageUpload img {
+  width: 16px;
+  height: 16px;
+}
+
+.questionUploadText {
+  min-height: 40px;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+}
+
+.questionUploadText strong {
+  display: block;
+  color: #6a63f5;
+  margin: 0;
+  line-height: 1.2;
+}
+
+.questionUploadText span {
+  display: block;
+  color: #9a97c8;
+  margin: 0;
+  line-height: 1.2;
+}
+
+.removeImageButton {
+  margin-top: 8px;
+  border: none;
+  background: transparent;
+  color: #6a63f5;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0;
+}
+
+.successOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  background: rgba(12, 13, 20, 0.38);
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+
+.successModal {
+  width: min(100%, 340px);
+  background: #ffffff;
+  border-radius: 18px;
+  box-shadow: 0 18px 52px rgba(15, 23, 42, 0.22);
+  padding: 22px 20px 18px;
+  display: grid;
+  gap: 16px;
+  justify-items: center;
+  text-align: center;
+}
+
+.successModalIcon {
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+}
+
+.successModalTitle {
+  margin: 0;
+  color: #6a63f5;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+.successModalButton {
+  width: 100%;
+  height: 42px;
+  border: none;
+  border-radius: 10px;
+  background: linear-gradient(90deg, #625de9 0%, #6d64f5 100%);
+  color: #ffffff;
+  font-size: 18px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
 .addQuestionButton {
   margin: 10px auto 0;
   border: none;
@@ -517,7 +896,7 @@
 .footer {
   text-align: center;
   color: #737373;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 350;
   padding-bottom: 8px;
 }
@@ -534,6 +913,10 @@
 
   .heroStats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .aiMetaGrid {
+    grid-template-columns: 1fr;
   }
 
   .heroActions {
@@ -574,6 +957,24 @@
     gap: 12px;
   }
 
+  .modeSwitchButton {
+    height: 38px;
+    font-size: 12px;
+  }
+
+  .aiHint {
+    font-size: 12px;
+  }
+
+  .fileUploadText strong {
+    font-size: 14px;
+  }
+
+  .generateButton {
+    height: 40px;
+    font-size: 14px;
+  }
+
   .topColumn {
     gap: 10px;
   }
@@ -586,6 +987,12 @@
     height: 42px;
     font-size: 14px;
     padding: 0 12px;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .heroInput[type="date"] {
+    padding-right: 34px;
   }
 
   .heroSummaryTitle {
@@ -603,6 +1010,7 @@
   .heroActions {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
+    margin-top: 24px;
   }
 
   .createButton,
@@ -689,8 +1097,19 @@
   }
 
   .addOptionButton,
-  .addQuestionButton,
-  .footer {
+  .addQuestionButton {
     font-size: 14px;
+  }
+
+  .successModalTitle {
+    font-size: 14px;
+  }
+
+  .questionsSection {
+    margin-top: 36px;
+  }
+
+  .footer {
+    font-size: 12px;
   }
 }

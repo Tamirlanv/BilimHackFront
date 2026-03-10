@@ -14,7 +14,6 @@ import {
   Menu,
   Moon,
   PanelLeftClose,
-  PanelLeftOpen,
   Users,
 } from "lucide-react";
 import { ReactNode, useEffect, useMemo, useState } from "react";
@@ -210,8 +209,18 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
               <PanelLeftClose size={16} />
             </Button>
           ) : (
-            <Button variant="ghost" onClick={toggleCollapsed} aria-label={collapsed ? t("Раскрыть меню", "Мәзірді кеңейту") : t("Свернуть меню", "Мәзірді жинау")}>
-              {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+            <Button
+              className={styles.collapseToggle}
+              variant="ghost"
+              onClick={toggleCollapsed}
+              aria-label={collapsed ? t("Раскрыть меню", "Мәзірді кеңейту") : t("Свернуть меню", "Мәзірді жинау")}
+            >
+              <img
+                src={assetPaths.icons.sidebarArrow}
+                alt=""
+                aria-hidden="true"
+                className={`${styles.collapseArrow} ${collapsed ? styles.collapseArrowCollapsed : styles.collapseArrowExpanded}`}
+              />
             </Button>
           )}
         </div>

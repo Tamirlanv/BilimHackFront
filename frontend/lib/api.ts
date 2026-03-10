@@ -5,7 +5,10 @@ import {
   HistoryItem,
   ProfileData,
   ProfileInvitation,
+  TeacherCustomMaterialGenerateResponse,
+  TeacherCustomMaterialParseResponse,
   TeacherCustomQuestionInput,
+  TeacherCustomTestResultsResponse,
   TeacherCustomTest,
   TeacherCustomTestDetails,
   TeacherGroup,
@@ -41,96 +44,147 @@ const CACHE_TTL = {
   teacherStudentHistory: 45 * 1000,
   teacherCustomTests: 30 * 1000,
   teacherCustomTestDetails: 30 * 1000,
+  teacherCustomTestResults: 60 * 1000,
   studentGroupTests: 30 * 1000,
   profile: 20 * 1000,
 } as const;
 
 let refreshPromise: Promise<string | null> | null = null;
+const inflightCacheRequests = new Map<string, Promise<unknown>>();
+
+interface ApiRequestConfig {
+  timeoutMs?: number;
+}
+
+function isAbortError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const name = (error as { name?: string }).name || "";
+  return name === "AbortError" || name === "TimeoutError";
+}
 
 async function apiRequest<T>(
   path: string,
   options: RequestInit = {},
   token?: string,
+  config?: ApiRequestConfig,
 ): Promise<T> {
   const headers = new Headers(options.headers || {});
-  headers.set("Content-Type", "application/json");
+  const hasFormDataBody = typeof FormData !== "undefined" && options.body instanceof FormData;
+  if (!hasFormDataBody && options.body !== undefined && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+  if (hasFormDataBody) {
+    headers.delete("Content-Type");
+  }
   if (token && !headers.has("Authorization")) {
     headers.set("Authorization", `Bearer ${token}`);
+  }
+
+  const timeoutMs = Math.max(0, Number(config?.timeoutMs || 0));
+  const externalSignal = options.signal;
+  const timeoutController =
+    typeof AbortController !== "undefined" && timeoutMs > 0 ? new AbortController() : null;
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+  let onExternalAbort: (() => void) | null = null;
+
+  if (timeoutController) {
+    if (externalSignal?.aborted) {
+      timeoutController.abort();
+    } else if (externalSignal) {
+      onExternalAbort = () => timeoutController.abort();
+      externalSignal.addEventListener("abort", onExternalAbort, { once: true });
+    }
+    timeoutHandle = setTimeout(() => {
+      timeoutController.abort();
+    }, timeoutMs);
   }
 
   const performRequest = async (baseUrl: string) =>
     fetch(`${baseUrl}${path}`, {
       ...options,
       headers,
+      signal: timeoutController?.signal ?? externalSignal,
       cache: "no-store",
       credentials: "include",
     });
 
-  const baseCandidates = buildApiBaseCandidates();
-  let currentBaseUrl = baseCandidates[0] ?? API_BASE;
-  let response: Response | null = null;
-  let fallbackHttpResponse: Response | null = null;
-  let lastFetchError: unknown = null;
+  try {
+    const baseCandidates = buildApiBaseCandidates();
+    let currentBaseUrl = baseCandidates[0] ?? API_BASE;
+    let response: Response | null = null;
+    let fallbackHttpResponse: Response | null = null;
+    let lastFetchError: unknown = null;
 
-  for (let index = 0; index < baseCandidates.length; index += 1) {
-    const baseUrl = baseCandidates[index];
-    const hasNextCandidate = index < baseCandidates.length - 1;
-    try {
-      const attempt = await performRequest(baseUrl);
-      if (shouldTryNextCandidate(attempt, hasNextCandidate)) {
-        fallbackHttpResponse = attempt;
-        continue;
+    for (let index = 0; index < baseCandidates.length; index += 1) {
+      const baseUrl = baseCandidates[index];
+      const hasNextCandidate = index < baseCandidates.length - 1;
+      try {
+        const attempt = await performRequest(baseUrl);
+        if (shouldTryNextCandidate(attempt, hasNextCandidate)) {
+          fallbackHttpResponse = attempt;
+          continue;
+        }
+        response = attempt;
+        currentBaseUrl = baseUrl;
+        break;
+      } catch (error) {
+        if (isAbortError(error)) {
+          throw new Error("Превышено время ожидания ответа сервера. Попробуйте снова.");
+        }
+        lastFetchError = error;
       }
-      response = attempt;
-      currentBaseUrl = baseUrl;
-      break;
-    } catch (error) {
-      lastFetchError = error;
+    }
+
+    if (!response && fallbackHttpResponse) {
+      response = fallbackHttpResponse;
+    }
+
+    if (!response) {
+      if (lastFetchError instanceof Error && lastFetchError.message.trim()) {
+        throw new Error(lastFetchError.message);
+      }
+      throw new Error("NetworkError when attempting to fetch resource.");
+    }
+
+    if (
+      response.status === 401 &&
+      token &&
+      !path.startsWith("/auth/login") &&
+      !path.startsWith("/auth/register") &&
+      !path.startsWith("/auth/refresh")
+    ) {
+      const refreshedAccessToken = await tryRefreshToken();
+      if (refreshedAccessToken) {
+        headers.set("Authorization", `Bearer ${refreshedAccessToken}`);
+        response = await performRequest(currentBaseUrl);
+      }
+    }
+
+    if (!response.ok) {
+      const detail = await extractErrorFromResponse(
+        response,
+        `Request failed / Сұрау қатесі: ${response.status}`,
+      );
+      throw new Error(detail);
+    }
+
+    if (response.status === 204) {
+      return {} as T;
+    }
+    const contentLength = response.headers.get("content-length");
+    if (contentLength === "0") {
+      return {} as T;
+    }
+
+    return (await response.json()) as T;
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+    if (externalSignal && onExternalAbort) {
+      externalSignal.removeEventListener("abort", onExternalAbort);
     }
   }
-
-  if (!response && fallbackHttpResponse) {
-    response = fallbackHttpResponse;
-  }
-
-  if (!response) {
-    if (lastFetchError instanceof Error && lastFetchError.message.trim()) {
-      throw new Error(lastFetchError.message);
-    }
-    throw new Error("NetworkError when attempting to fetch resource.");
-  }
-
-  if (
-    response.status === 401 &&
-    token &&
-    !path.startsWith("/auth/login") &&
-    !path.startsWith("/auth/register") &&
-    !path.startsWith("/auth/refresh")
-  ) {
-    const refreshedAccessToken = await tryRefreshToken();
-    if (refreshedAccessToken) {
-      headers.set("Authorization", `Bearer ${refreshedAccessToken}`);
-      response = await performRequest(currentBaseUrl);
-    }
-  }
-
-  if (!response.ok) {
-    const detail = await extractErrorFromResponse(
-      response,
-      `Request failed / Сұрау қатесі: ${response.status}`,
-    );
-    throw new Error(detail);
-  }
-
-  if (response.status === 204) {
-    return {} as T;
-  }
-  const contentLength = response.headers.get("content-length");
-  if (contentLength === "0") {
-    return {} as T;
-  }
-
-  return (await response.json()) as T;
 }
 
 function normalizeApiPrefix(value: string): string {
@@ -212,9 +266,23 @@ async function cachedRequest<T>(
   if (cached !== null) {
     return cached;
   }
-  const payload = await loader();
-  writeCachedJson(key, payload);
-  return payload;
+
+  const inflight = inflightCacheRequests.get(key);
+  if (inflight) {
+    return inflight as Promise<T>;
+  }
+
+  const request = loader()
+    .then((payload) => {
+      writeCachedJson(key, payload);
+      return payload;
+    })
+    .finally(() => {
+      inflightCacheRequests.delete(key);
+    });
+
+  inflightCacheRequests.set(key, request as Promise<unknown>);
+  return request;
 }
 
 function invalidateStudentCaches(): void {
@@ -469,9 +537,10 @@ function buildApiBaseCandidates(): string[] {
 
 function shouldTryNextCandidate(response: Response, hasNextCandidate: boolean): boolean {
   if (!hasNextCandidate) return false;
-  if (response.status === 404) return true;
   const contentType = (response.headers.get("content-type") || "").toLowerCase();
-  return contentType.includes("text/html");
+  if (contentType.includes("text/html")) return true;
+  if (response.status === 404 && !contentType.includes("application/json")) return true;
+  return false;
 }
 
 function looksLikeHtmlPayload(text: string, contentType: string): boolean {
@@ -488,6 +557,7 @@ export function register(body: {
   password: string;
   email_verification_code: string;
   role: "student" | "teacher";
+  admin_key?: string | null;
   preferred_language: "RU" | "KZ";
   education_level?: "school" | "college" | "university" | null;
   direction?: string | null;
@@ -890,6 +960,7 @@ export function createTeacherCustomTest(
     title: string;
     duration_minutes: number;
     warning_limit: number;
+    due_date?: string | null;
     group_ids: number[];
     questions: TeacherCustomQuestionInput[];
   },
@@ -901,6 +972,114 @@ export function createTeacherCustomTest(
     invalidateTeacherCache({ clearCustomTests: true });
     return payload;
   });
+}
+
+export function getTeacherCustomTestResults(
+  token: string,
+  customTestId: number,
+  groupIds: number[] = [],
+  options?: { force?: boolean },
+) {
+  const normalizedGroupIds = [...groupIds]
+    .filter((groupId) => Number.isFinite(groupId) && groupId > 0)
+    .map((groupId) => Number(groupId))
+    .sort((left, right) => left - right);
+  const params = new URLSearchParams();
+  for (const groupId of normalizedGroupIds) {
+    params.append("group_ids", String(groupId));
+  }
+  const suffix = params.toString();
+  const path = `/teacher/custom-tests/${customTestId}/results${suffix ? `?${suffix}` : ""}`;
+  const cacheKey = `teacher:custom-test:${customTestId}:results:${suffix || "all"}`;
+  if (options?.force) {
+    clearCachedKey(cacheKey);
+  }
+  return cachedRequest(
+    cacheKey,
+    CACHE_TTL.teacherCustomTestResults,
+    () => apiRequest<TeacherCustomTestResultsResponse>(path, {}, token),
+  );
+}
+
+export async function downloadTeacherCustomTestResultsCsv(
+  token: string,
+  customTestId: number,
+  groupIds: number[] = [],
+): Promise<Blob> {
+  const params = new URLSearchParams();
+  for (const groupId of groupIds) {
+    if (Number.isFinite(groupId) && groupId > 0) {
+      params.append("group_ids", String(groupId));
+    }
+  }
+  const suffix = params.toString();
+  const path = `/teacher/custom-tests/${customTestId}/results.csv${suffix ? `?${suffix}` : ""}`;
+  const headers = new Headers({ Authorization: `Bearer ${token}` });
+
+  const baseCandidates = buildApiBaseCandidates();
+  let response: Response | null = null;
+  let fallbackHttpResponse: Response | null = null;
+  let lastFetchError: unknown = null;
+
+  for (let index = 0; index < baseCandidates.length; index += 1) {
+    const baseUrl = baseCandidates[index];
+    const hasNextCandidate = index < baseCandidates.length - 1;
+    try {
+      const attempt = await fetch(`${baseUrl}${path}`, {
+        method: "GET",
+        headers,
+        credentials: "include",
+        cache: "no-store",
+      });
+      if (shouldTryNextCandidate(attempt, hasNextCandidate)) {
+        fallbackHttpResponse = attempt;
+        continue;
+      }
+      response = attempt;
+      break;
+    } catch (error) {
+      lastFetchError = error;
+    }
+  }
+
+  if (!response && fallbackHttpResponse) response = fallbackHttpResponse;
+  if (!response) {
+    if (lastFetchError instanceof Error && lastFetchError.message.trim()) {
+      throw new Error(lastFetchError.message);
+    }
+    throw new Error("NetworkError when attempting to fetch resource.");
+  }
+
+  if (!response.ok) {
+    const detail = await extractErrorFromResponse(response, `Request failed / Сұрау қатесі: ${response.status}`);
+    throw new Error(detail);
+  }
+
+  return response.blob();
+}
+
+export function generateTeacherCustomTestMaterial(
+  token: string,
+  body: {
+    topic: string;
+    difficulty: "easy" | "medium" | "hard";
+    questions_count: number;
+    language: "RU" | "KZ";
+  },
+) {
+  return apiRequest<TeacherCustomMaterialGenerateResponse>("/teacher/custom-tests/generate-material", {
+    method: "POST",
+    body: JSON.stringify(body),
+  }, token, { timeoutMs: 65_000 });
+}
+
+export function parseTeacherCustomTestFile(token: string, file: File) {
+  const formData = new FormData();
+  formData.append("file", file);
+  return apiRequest<TeacherCustomMaterialParseResponse>("/teacher/custom-tests/parse-file", {
+    method: "POST",
+    body: formData,
+  }, token);
 }
 
 export function deleteTeacherCustomTest(token: string, customTestId: number) {

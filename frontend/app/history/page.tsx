@@ -294,7 +294,7 @@ export default function HistoryPage() {
             </div>
           </section>
 
-          <footer className={styles.footer}>OKU.com</footer>
+          <footer className={styles.footer}>oku.com.kz</footer>
         </div>
       </AppShell>
     </AuthGuard>

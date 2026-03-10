@@ -1,6 +1,6 @@
 "use client";
 
-import { PointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { MouseEvent, PointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import AppShell from "@/components/AppShell";
@@ -8,9 +8,11 @@ import AuthGuard from "@/components/AuthGuard";
 import Button from "@/components/ui/Button";
 import {
   BLITZ_LAST_RESULT_KEY,
+  BLITZ_QUESTION_COUNT_OPTIONS,
   BLITZ_QUESTION_TIME_LIMIT_SECONDS,
   BLITZ_SESSION_SIZE,
   BlitzAnswerRecord,
+  BlitzDifficulty,
   BlitzQuestion,
   appendBlitzResultToHistory,
   buildBlitzResultPayload,
@@ -22,15 +24,21 @@ import styles from "@/app/blitz/blitz.module.css";
 
 type AnswerSource = "button" | "swipe" | "timeout";
 type ExitDirection = -1 | 0 | 1;
+type BlitzSettings = { difficulty: BlitzDifficulty; questionCount: number };
 
 const SWIPE_THRESHOLD_PX = 90;
+const BLITZ_DIFFICULTY_OPTIONS: BlitzDifficulty[] = ["easy", "medium", "hard"];
 
 export default function BlitzPage() {
   const router = useRouter();
   const uiLanguage = useUiLanguage();
   const t = (ru: string, kz: string) => tr(uiLanguage, ru, kz);
 
-  const [questions] = useState<BlitzQuestion[]>(() => createBlitzQuestionSet(BLITZ_SESSION_SIZE, getUiLanguage()));
+  const [settings, setSettings] = useState<BlitzSettings>({ difficulty: "easy", questionCount: BLITZ_SESSION_SIZE });
+  const [pendingSettings, setPendingSettings] = useState<BlitzSettings>(settings);
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+
+  const [questions, setQuestions] = useState<BlitzQuestion[]>(() => createBlitzQuestionSet(BLITZ_SESSION_SIZE, getUiLanguage(), "easy"));
   const [answers, setAnswers] = useState<BlitzAnswerRecord[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
   const [secondsLeft, setSecondsLeft] = useState(BLITZ_QUESTION_TIME_LIMIT_SECONDS);
@@ -50,6 +58,32 @@ export default function BlitzPage() {
 
   const question = questions[activeIndex] ?? null;
 
+  const setWheelSpacer = (row: HTMLElement) => {
+    row.style.setProperty("--wheel-spacer", `${Math.max(0, row.clientWidth / 2)}px`);
+  };
+
+  const centerChoiceButton = (button: HTMLElement, behavior: ScrollBehavior = "auto") => {
+    const row = button.parentElement as HTMLElement | null;
+    if (!row) return;
+    const rowCenter = row.clientWidth / 2;
+    const target = button.offsetLeft + button.offsetWidth / 2 - rowCenter;
+    const maxLeft = Math.max(0, row.scrollWidth - row.clientWidth);
+    const nextLeft = Math.min(maxLeft, Math.max(0, target));
+    row.scrollTo({ left: nextLeft, behavior });
+  };
+
+  const handleWheelChoice = <T,>(
+    setter: (value: T) => void,
+    value: T,
+    event: MouseEvent<HTMLButtonElement>,
+  ) => {
+    const button = event.currentTarget;
+    setter(value);
+    requestAnimationFrame(() => {
+      centerChoiceButton(button, "smooth");
+    });
+  };
+
   const timerProgressPercent = useMemo(() => {
     return Math.round((secondsLeft / BLITZ_QUESTION_TIME_LIMIT_SECONDS) * 100);
   }, [secondsLeft]);
@@ -63,7 +97,7 @@ export default function BlitzPage() {
   }, []);
 
   useEffect(() => {
-    if (!isStarted) return;
+    if (!isStarted && !isSettingsModalOpen) return;
 
     const prevBodyOverflow = document.body.style.overflow;
     const prevBodyOverscroll = document.body.style.overscrollBehaviorY;
@@ -81,7 +115,68 @@ export default function BlitzPage() {
       document.documentElement.style.overflow = prevHtmlOverflow;
       document.documentElement.style.overscrollBehaviorY = prevHtmlOverscroll;
     };
-  }, [isStarted]);
+  }, [isSettingsModalOpen, isStarted]);
+
+  useEffect(() => {
+    if (!isSettingsModalOpen) return;
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsSettingsModalOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleEscape);
+    return () => {
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [isSettingsModalOpen]);
+
+  useEffect(() => {
+    if (!isSettingsModalOpen) return;
+    const rows = Array.from(document.querySelectorAll<HTMLElement>(`.${styles.choiceRow}`));
+
+    const alignActive = () => {
+      rows.forEach((row) => {
+        setWheelSpacer(row);
+        const active = row.querySelector<HTMLElement>(`.${styles.choiceButtonActive}`);
+        if (active) {
+          centerChoiceButton(active, "auto");
+        }
+      });
+    };
+
+    const frameA = requestAnimationFrame(() => {
+      requestAnimationFrame(alignActive);
+    });
+
+    const onTransitionEnd = (event: Event) => {
+      const target = event.target as HTMLElement | null;
+      if (!target || !target.classList.contains(styles.choiceButton)) return;
+      requestAnimationFrame(alignActive);
+    };
+
+    rows.forEach((row) => row.addEventListener("transitionend", onTransitionEnd));
+    return () => {
+      cancelAnimationFrame(frameA);
+      rows.forEach((row) => row.removeEventListener("transitionend", onTransitionEnd));
+    };
+  }, [isSettingsModalOpen, pendingSettings.difficulty, pendingSettings.questionCount]);
+
+  useEffect(() => {
+    if (!isSettingsModalOpen) return;
+    const onResize = () => {
+      const rows = document.querySelectorAll<HTMLElement>(`.${styles.choiceRow}`);
+      rows.forEach((row) => {
+        setWheelSpacer(row);
+        const active = row.querySelector<HTMLElement>(`.${styles.choiceButtonActive}`);
+        if (active) {
+          centerChoiceButton(active, "auto");
+        }
+      });
+    };
+    window.addEventListener("resize", onResize);
+    onResize();
+    return () => window.removeEventListener("resize", onResize);
+  }, [isSettingsModalOpen]);
 
   const finishBlitz = useCallback(
     (nextAnswers: BlitzAnswerRecord[]) => {
@@ -212,7 +307,6 @@ export default function BlitzPage() {
 
   const decisionLabel = dragX > 28 ? t("ДА", "ИӘ") : dragX < -28 ? t("НЕТ", "ЖОҚ") : "";
   const decisionClass = dragX > 28 ? styles.decisionYes : dragX < -28 ? styles.decisionNo : "";
-
   if (!question) {
     return (
       <AuthGuard roles={["student"]}>
@@ -234,19 +328,39 @@ export default function BlitzPage() {
       <AppShell>
         <div className={styles.page}>
           {!isStarted ? (
-            <section className={styles.startWrap}>
-              <article className={styles.startCard}>
-                <h2 className={styles.startTitle}>{t("Вы готовы начать?", "Бастауға дайынсыз ба?")}</h2>
-                <p className={styles.startText}>{t("Блиц состоит из 30 вопросов. На каждый вопрос дается 15 секунд.", "Блиц 30 сұрақтан тұрады. Әр сұраққа 15 секунд беріледі.")}</p>
-                <div className={styles.startMeta}>
-                  <span>{t("30 вопросов", "30 сұрақ")}</span>
-                  <span>{t("15 секунд на вопрос", "Әр сұраққа 15 секунд")}</span>
-                  <span>{t("Формат: Да / Нет", "Формат: Иә / Жоқ")}</span>
+            <>
+              <header className={styles.header}>
+                <h2 className={styles.title}>{t("Блиц", "Блиц")}</h2>
+                <p className={styles.subtitle}>{t("Устрой быстрый тест своим знаниям", "Біліміңізді жылдам тексеріңіз")}</p>
+              </header>
+
+              <section className={styles.startWrap}>
+                <div className={styles.startStack}>
+                  <div className={`${styles.startStackLayer} ${styles.startStackLayerBack}`} />
+                  <div className={`${styles.startStackLayer} ${styles.startStackLayerMid}`} />
+                  <article className={styles.startCard}>
+                    <p className={styles.startCardLead}>{t("15 секунд на 1 вопрос", "1 сұраққа 15 секунд")}</p>
+                    <h3 className={styles.startTitle}>{t("Быстрые вопросы ответы на которые Да/Нет", "Иә/Жоқ форматындағы жедел сұрақтар")}</h3>
+                    <div className={styles.startCardHintRow}>
+                      <span>{t("Нет", "Жоқ")}</span>
+                      <span>{t("Да", "Иә")}</span>
+                    </div>
+                  </article>
                 </div>
+
                 <div className={styles.startActions}>
                   <Button
                     className={styles.startPrimary}
                     onClick={() => {
+                      const nextQuestions = createBlitzQuestionSet(settings.questionCount, uiLanguage, settings.difficulty);
+                      setQuestions(nextQuestions);
+                      setAnswers([]);
+                      setActiveIndex(0);
+                      setIsTransitioning(false);
+                      setExitDirection(0);
+                      setIsDragging(false);
+                      setDragX(0);
+                      pointerStartX.current = null;
                       setSessionStartedAt(Date.now());
                       setSecondsLeft(BLITZ_QUESTION_TIME_LIMIT_SECONDS);
                       setIsStarted(true);
@@ -254,12 +368,94 @@ export default function BlitzPage() {
                   >
                     {t("Начать блиц", "Блицті бастау")}
                   </Button>
-                  <button className={styles.startCancel} type="button" onClick={() => router.push("/dashboard")}>
-                    {t("Отмена", "Бас тарту")}
+                  <button
+                    className={styles.startSettingsButton}
+                    type="button"
+                    onClick={() => {
+                      setPendingSettings(settings);
+                      setIsSettingsModalOpen(true);
+                    }}
+                  >
+                    {t("Параметры", "Параметрлер")}
                   </button>
                 </div>
-              </article>
-            </section>
+              </section>
+
+              {isSettingsModalOpen ? (
+                <div
+                  className={styles.modalOverlay}
+                  role="presentation"
+                  onClick={() => setIsSettingsModalOpen(false)}
+                >
+                  <article
+                    className={styles.modal}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label={t("Параметры блица", "Блиц параметрлері")}
+                    onClick={(event: MouseEvent<HTMLElement>) => event.stopPropagation()}
+                  >
+                    <header className={styles.modalHeader}>
+                      <h3>{t("Параметры блица", "Блиц параметрлері")}</h3>
+                      <p>{t("Настройте сложность и количество вопросов.", "Күрделілік пен сұрақ санын таңдаңыз.")}</p>
+                    </header>
+
+                    <section className={styles.modalBlock}>
+                      <p className={styles.modalLabel}>{t("Сложность", "Күрделілік")}</p>
+                      <div className={styles.choiceWheel}>
+                        <div className={styles.choiceRow}>
+                          <span className={styles.wheelSpacer} aria-hidden="true" />
+                          {BLITZ_DIFFICULTY_OPTIONS.map((option) => (
+                            <button
+                              key={option}
+                              type="button"
+                              className={`${styles.choiceButton} ${pendingSettings.difficulty === option ? styles.choiceButtonActive : ""}`}
+                              onClick={(event) => handleWheelChoice((value) => setPendingSettings((prev) => ({ ...prev, difficulty: value })), option, event)}
+                            >
+                              {difficultyLabel(option, uiLanguage)}
+                            </button>
+                          ))}
+                          <span className={styles.wheelSpacer} aria-hidden="true" />
+                        </div>
+                      </div>
+                    </section>
+
+                    <section className={styles.modalBlock}>
+                      <p className={styles.modalLabel}>{t("Количество вопросов", "Сұрақ саны")}</p>
+                      <div className={styles.choiceWheel}>
+                        <div className={styles.choiceRow}>
+                          <span className={styles.wheelSpacer} aria-hidden="true" />
+                          {BLITZ_QUESTION_COUNT_OPTIONS.map((option) => (
+                            <button
+                              key={option}
+                              type="button"
+                              className={`${styles.choiceButton} ${pendingSettings.questionCount === option ? styles.choiceButtonActive : ""}`}
+                              onClick={(event) => handleWheelChoice((value) => setPendingSettings((prev) => ({ ...prev, questionCount: value })), option, event)}
+                            >
+                              {option}
+                            </button>
+                          ))}
+                          <span className={styles.wheelSpacer} aria-hidden="true" />
+                        </div>
+                      </div>
+                    </section>
+
+                    <div className={styles.modalActions}>
+                      <Button
+                        onClick={() => {
+                          setSettings(pendingSettings);
+                          setIsSettingsModalOpen(false);
+                        }}
+                      >
+                        {t("Готово", "Дайын")}
+                      </Button>
+                      <button className={styles.modalCancel} type="button" onClick={() => setIsSettingsModalOpen(false)}>
+                        {t("Отмена", "Бас тарту")}
+                      </button>
+                    </div>
+                  </article>
+                </div>
+              ) : null}
+            </>
           ) : (
             <>
               <header className={styles.header}>
@@ -323,6 +519,12 @@ export default function BlitzPage() {
       </AppShell>
     </AuthGuard>
   );
+}
+
+function difficultyLabel(value: BlitzDifficulty, language: "RU" | "KZ"): string {
+  if (value === "hard") return language === "KZ" ? "Күрделі" : "Сложная";
+  if (value === "medium") return language === "KZ" ? "Орташа" : "Средняя";
+  return language === "KZ" ? "Жеңіл" : "Лёгкая";
 }
 
 function formatTimer(value: number): string {

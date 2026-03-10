@@ -246,7 +246,7 @@ export default function DashboardPage() {
             </div>
           </section>
 
-          <footer className={styles.footer}>OKU.com</footer>
+          <footer className={styles.footer}>oku.com.kz</footer>
         </div>
       </AppShell>
     </AuthGuard>

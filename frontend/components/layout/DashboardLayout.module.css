@@ -66,6 +66,34 @@
 .collapseRow {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  min-height: 40px;
+}
+
+.sidebarCollapsed .collapseRow {
+  justify-content: center;
+}
+
+.collapseToggle {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+}
+
+.collapseArrow {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  transform-origin: 50% 50%;
+  transition: transform 0.28s ease;
+}
+
+.collapseArrowCollapsed {
+  transform: rotate(0deg);
+}
+
+.collapseArrowExpanded {
+  transform: rotate(180deg);
 }
 
 .nav {
@@ -283,7 +311,8 @@
   .brandText,
   .main,
   .mobileSidebar,
-  .overlay {
+  .overlay,
+  .collapseArrow {
     transition: none !important;
   }
 }

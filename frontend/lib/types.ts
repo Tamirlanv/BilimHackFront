@@ -4,7 +4,7 @@ export type Difficulty = "easy" | "medium" | "hard";
 export type Language = "RU" | "KZ";
 export type Mode = "text" | "audio" | "oral";
 export type EducationLevel = "school" | "college" | "university";
-export type ExamKind = "ent" | "ielts";
+export type ExamKind = "ent" | "ielts" | "group_custom";
 
 export type QuestionType =
   | "single_choice"
@@ -51,6 +51,7 @@ export interface Question {
     options?: OptionItem[];
     left?: string[];
     right?: string[];
+    image_data_url?: string;
   } | null;
   tts_text?: string | null;
 }
@@ -221,6 +222,29 @@ export interface TeacherCustomQuestionInput {
   options?: string[];
   correct_option_index?: number | null;
   sample_answer?: string | null;
+  image_data_url?: string | null;
+}
+
+export interface TeacherCustomMaterialQuestion {
+  prompt: string;
+  answer_type: TeacherCustomAnswerType;
+  options: string[];
+  correct_option_index?: number | null;
+  sample_answer?: string | null;
+  image_data_url?: string | null;
+}
+
+export interface TeacherCustomMaterialGenerateResponse {
+  topic: string;
+  difficulty: Difficulty;
+  questions_count: number;
+  questions: TeacherCustomMaterialQuestion[];
+}
+
+export interface TeacherCustomMaterialParseResponse {
+  source_filename: string;
+  questions_count: number;
+  questions: TeacherCustomMaterialQuestion[];
 }
 
 export interface TeacherCustomTest {
@@ -228,6 +252,7 @@ export interface TeacherCustomTest {
   title: string;
   duration_minutes: number;
   warning_limit: number;
+  due_date?: string | null;
   questions_count: number;
   groups: TeacherCustomGroupBrief[];
   created_at: string;
@@ -242,10 +267,39 @@ export interface TeacherCustomQuestion {
   options: string[];
   correct_option_index?: number | null;
   sample_answer?: string | null;
+  image_data_url?: string | null;
 }
 
 export interface TeacherCustomTestDetails extends TeacherCustomTest {
   questions: TeacherCustomQuestion[];
+}
+
+export interface TeacherCustomTestResultGroup {
+  id: number;
+  name: string;
+  members_count: number;
+  selected: boolean;
+}
+
+export interface TeacherCustomTestResultStudent {
+  student_id: number;
+  full_name: string;
+  group_id: number;
+  group_name: string;
+  percent?: number | null;
+  warning_count?: number | null;
+  submitted_at?: string | null;
+  latest_test_id?: number | null;
+}
+
+export interface TeacherCustomTestResultsResponse {
+  custom_test_id: number;
+  title: string;
+  questions_count: number;
+  warning_limit: number;
+  due_date?: string | null;
+  groups: TeacherCustomTestResultGroup[];
+  students: TeacherCustomTestResultStudent[];
 }
 
 export interface GroupAssignedTest {
@@ -258,6 +312,10 @@ export interface GroupAssignedTest {
   group_id: number;
   group_name: string;
   created_at: string;
+   due_date?: string | null;
+   is_completed: boolean;
+   completed_percent?: number | null;
+   completed_test_id?: number | null;
 }
 
 export interface ProfileInvitation {

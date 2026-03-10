@@ -91,6 +91,15 @@
   font-weight: 600;
 }
 
+.modeMetricValue {
+  display: inline-block;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
 .subjectBlock {
   margin-top: 4px;
   display: grid;
@@ -314,7 +323,7 @@
   margin-top: 8px;
   text-align: center;
   color: var(--ink-muted);
-  font-size: 16px;
+  font-size: 12px;
   line-height: 1.35;
   font-weight: 350;
 }
@@ -349,7 +358,7 @@
   .fieldLabel,
   .stateCard,
   .footer {
-    font-size: 14px;
+    font-size: 12px;
   }
 
   .taskItem,
@@ -369,6 +378,10 @@
 
   .subjectName {
     font-size: 16px;
+  }
+
+  .modeMetricValue {
+    max-width: 150px;
   }
 
   .actionsRow {
