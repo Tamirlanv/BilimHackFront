@@ -73,6 +73,20 @@ class RedisCache:
         except RedisError:
             return
 
+    def delete_pattern(self, pattern: str) -> None:
+        if not self.enabled or not pattern:
+            return
+        try:
+            cursor = 0
+            while True:
+                cursor, keys = self._client.scan(cursor=cursor, match=pattern, count=200)
+                if keys:
+                    self._client.delete(*keys)
+                if cursor == 0:
+                    break
+        except RedisError:
+            return
+
     def increment_with_ttl(self, key: str, ttl_seconds: int) -> int:
         """
         Returns current counter value after increment.
@@ -90,4 +104,3 @@ class RedisCache:
 
 
 cache = RedisCache()
-

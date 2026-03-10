@@ -1,6 +1,10 @@
+import csv
+import io
 import re
+from datetime import datetime, timezone
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import joinedload, selectinload
 
@@ -16,6 +20,8 @@ from app.models import (
     TeacherAuthoredQuestion,
     TeacherAuthoredTestGroup,
     TeacherAuthoredTest,
+    Test,
+    TestSession,
     User,
     UserSession,
     UserRole,
@@ -32,9 +38,16 @@ from app.schemas.groups import (
 )
 from app.schemas.teacher import GroupAnalyticsResponse, GroupWeakTopicsResponse
 from app.schemas.teacher_tests import (
+    TeacherCustomMaterialGenerateRequest,
+    TeacherCustomMaterialParseResponse,
+    TeacherCustomMaterialGenerateResponse,
+    TeacherCustomMaterialQuestion,
     TeacherCustomTestCreateRequest,
     TeacherCustomGroupBrief,
     TeacherCustomTestListItem,
+    TeacherCustomTestResultsResponse,
+    TeacherCustomTestResultsGroupItem,
+    TeacherCustomTestResultsStudentItem,
     TeacherCustomTestResponse,
 )
 from app.schemas.tests import HistoryItemResponse, StudentProgressResponse
@@ -45,6 +58,8 @@ from app.services.progress import (
     build_student_history,
     build_student_progress,
 )
+from app.services.ai import ai_service
+from app.services.teacher_file_import import MAX_IMPORT_SIZE_BYTES, parse_teacher_test_import_file
 
 router = APIRouter(prefix="/teacher", tags=["teacher"])
 
@@ -435,6 +450,7 @@ def create_custom_test(
         title=title,
         time_limit_seconds=int(payload.duration_minutes) * 60,
         warning_limit=int(payload.warning_limit),
+        due_date=payload.due_date,
     )
     db.add(custom_test)
     db.flush()
@@ -457,7 +473,11 @@ def create_custom_test(
                     detail=f"У вопроса #{idx} выберите корректный правильный вариант.",
                 )
 
-            options_json = {"options": [{"id": option_idx + 1, "text": option_text} for option_idx, option_text in enumerate(options)]}
+            options_json = {
+                "options": [{"id": option_idx + 1, "text": option_text} for option_idx, option_text in enumerate(options)],
+            }
+            if question.image_data_url:
+                options_json["image_data_url"] = question.image_data_url
             correct_answer_json = {"correct_option_ids": [int(question.correct_option_index) + 1]}
             question_type = "single_choice"
         else:
@@ -468,7 +488,7 @@ def create_custom_test(
                     detail=f"Для вопроса #{idx} со свободным ответом укажите эталонный ответ.",
                 )
 
-            options_json = None
+            options_json = {"image_data_url": question.image_data_url} if question.image_data_url else None
             correct_answer_json = {
                 "sample_answer": sample_answer,
                 "keywords": _extract_keywords(sample_answer),
@@ -500,6 +520,141 @@ def create_custom_test(
     return _serialize_custom_test(db=db, custom_test_id=custom_test.id, teacher_id=current_user.id)
 
 
+@router.post("/custom-tests/generate-material", response_model=TeacherCustomMaterialGenerateResponse)
+def generate_custom_test_material(
+    payload: TeacherCustomMaterialGenerateRequest,
+    current_user: User = Depends(require_role(UserRole.teacher)),
+) -> TeacherCustomMaterialGenerateResponse:
+    topic = payload.topic.strip()
+    if not topic:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Тема не может быть пустой.")
+
+    questions_count = max(1, int(payload.questions_count))
+    try:
+        questions = ai_service.generate_teacher_custom_material(
+            topic=topic,
+            difficulty=payload.difficulty,
+            language=payload.language,
+            questions_count=questions_count,
+            user_id=current_user.id,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Не удалось сгенерировать материал: {exc}",
+        ) from exc
+
+    if not questions:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="AI не вернул материал. Попробуйте изменить тему или повторить запрос.",
+        )
+
+    return TeacherCustomMaterialGenerateResponse(
+        topic=topic,
+        difficulty=payload.difficulty,
+        questions_count=min(questions_count, len(questions)),
+        questions=[
+            TeacherCustomMaterialQuestion(
+                prompt=str(item.get("prompt", "")).strip(),
+                answer_type="free_text" if str(item.get("answer_type", "")).strip() == "free_text" else "choice",
+                options=[str(option).strip() for option in (item.get("options") or []) if str(option).strip()],
+                correct_option_index=(
+                    int(item["correct_option_index"])
+                    if isinstance(item.get("correct_option_index"), (int, float, str))
+                    and str(item.get("correct_option_index")).lstrip("-").isdigit()
+                    else None
+                ),
+                sample_answer=(
+                    None
+                    if item.get("sample_answer") is None
+                    else (str(item.get("sample_answer", "")).strip() or None)
+                ),
+                image_data_url=(
+                    None
+                    if item.get("image_data_url") is None
+                    else (str(item.get("image_data_url", "")).strip() or None)
+                ),
+            )
+            for item in questions
+        ],
+    )
+
+
+@router.post("/custom-tests/parse-file", response_model=TeacherCustomMaterialParseResponse)
+async def parse_custom_test_file(
+    file: UploadFile = File(...),
+    current_user: User = Depends(require_role(UserRole.teacher)),
+) -> TeacherCustomMaterialParseResponse:
+    _ = current_user.id  # explicit for role-bound access and audit parity
+
+    filename = (file.filename or "").strip()
+    if not filename:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Файл не выбран.")
+
+    extension = Path(filename).suffix.lower()
+    if extension not in {".docx", ".csv"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Поддерживаются только файлы .docx и .csv.",
+        )
+
+    chunks: list[bytes] = []
+    total_size = 0
+    chunk_size = 256 * 1024
+    while True:
+        chunk = await file.read(chunk_size)
+        if not chunk:
+            break
+        total_size += len(chunk)
+        if total_size > MAX_IMPORT_SIZE_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Размер файла превышает лимит 5MB.",
+            )
+        chunks.append(chunk)
+    content = b"".join(chunks)
+
+    try:
+        parsed_questions = parse_teacher_test_import_file(filename=filename, content=content)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Не удалось распознать файл: {exc}",
+        ) from exc
+
+    return TeacherCustomMaterialParseResponse(
+        source_filename=filename,
+        questions_count=len(parsed_questions),
+        questions=[
+            TeacherCustomMaterialQuestion(
+                prompt=str(item.get("prompt", "")).strip(),
+                answer_type="free_text" if str(item.get("answer_type", "")).strip() == "free_text" else "choice",
+                options=[str(option).strip() for option in (item.get("options") or []) if str(option).strip()],
+                correct_option_index=(
+                    int(item["correct_option_index"])
+                    if isinstance(item.get("correct_option_index"), (int, float, str))
+                    and str(item.get("correct_option_index")).lstrip("-").isdigit()
+                    else None
+                ),
+                sample_answer=(
+                    None
+                    if item.get("sample_answer") is None
+                    else (str(item.get("sample_answer", "")).strip() or None)
+                ),
+                image_data_url=(
+                    None
+                    if item.get("image_data_url") is None
+                    else (str(item.get("image_data_url", "")).strip() or None)
+                ),
+            )
+            for item in parsed_questions
+        ],
+    )
+
+
 @router.get("/custom-tests/{custom_test_id}", response_model=TeacherCustomTestResponse)
 def get_custom_test(
     custom_test_id: int,
@@ -507,6 +662,77 @@ def get_custom_test(
     current_user: User = Depends(require_role(UserRole.teacher)),
 ) -> TeacherCustomTestResponse:
     return _serialize_custom_test(db=db, custom_test_id=custom_test_id, teacher_id=current_user.id)
+
+
+@router.get("/custom-tests/{custom_test_id}/results", response_model=TeacherCustomTestResultsResponse)
+def get_custom_test_results(
+    custom_test_id: int,
+    db: DBSession,
+    current_user: User = Depends(require_role(UserRole.teacher)),
+    group_ids: list[int] = Query(default=[]),
+) -> TeacherCustomTestResultsResponse:
+    normalized_group_ids = sorted({int(group_id) for group_id in group_ids if int(group_id) > 0})
+    cache_key = _teacher_custom_results_cache_key(
+        teacher_id=current_user.id,
+        custom_test_id=custom_test_id,
+        group_ids=normalized_group_ids,
+    )
+    cached = cache.get_json(cache_key)
+    if isinstance(cached, dict):
+        return TeacherCustomTestResultsResponse.model_validate(cached)
+
+    custom_test = _get_teacher_custom_test(db=db, custom_test_id=custom_test_id, teacher_id=current_user.id)
+    groups_payload, students_payload = _build_custom_test_results_payload(
+        db=db,
+        custom_test=custom_test,
+        selected_group_ids=normalized_group_ids,
+    )
+    payload = TeacherCustomTestResultsResponse(
+        custom_test_id=custom_test.id,
+        title=custom_test.title,
+        questions_count=len(custom_test.questions),
+        warning_limit=int(custom_test.warning_limit or 0),
+        due_date=custom_test.due_date,
+        groups=groups_payload,
+        students=students_payload,
+    )
+    cache.set_json(cache_key, payload.model_dump(mode="json"), ttl_seconds=60)
+    return payload
+
+
+@router.get("/custom-tests/{custom_test_id}/results.csv")
+def export_custom_test_results_csv(
+    custom_test_id: int,
+    db: DBSession,
+    current_user: User = Depends(require_role(UserRole.teacher)),
+    group_ids: list[int] = Query(default=[]),
+) -> Response:
+    custom_test = _get_teacher_custom_test(db=db, custom_test_id=custom_test_id, teacher_id=current_user.id)
+    _, students_payload = _build_custom_test_results_payload(
+        db=db,
+        custom_test=custom_test,
+        selected_group_ids=group_ids,
+    )
+
+    stream = io.StringIO()
+    writer = csv.writer(stream)
+    writer.writerow(["Имя", "Результат", "Предупреждения", "Сдано", "Группа"])
+    for row in students_payload:
+        percent_value = "–" if row.percent is None else f"{round(row.percent, 1):g}%"
+        warning_value = "–" if row.warning_count is None else str(row.warning_count)
+        submitted_value = row.submitted_at.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M") if row.submitted_at else "–"
+        writer.writerow([
+            _sanitize_csv_cell(row.full_name),
+            _sanitize_csv_cell(percent_value),
+            _sanitize_csv_cell(warning_value),
+            _sanitize_csv_cell(submitted_value),
+            _sanitize_csv_cell(row.group_name),
+        ])
+
+    filename = f"custom_test_{custom_test.id}_results.csv"
+    content = stream.getvalue()
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    return Response(content=content, media_type="text/csv; charset=utf-8", headers=headers)
 
 
 @router.delete("/custom-tests/{custom_test_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -517,6 +743,7 @@ def delete_custom_test(
 ) -> None:
     custom_test = _get_teacher_custom_test(db=db, custom_test_id=custom_test_id, teacher_id=current_user.id)
     affected_group_ids = sorted({link.group_id for link in custom_test.group_links})
+    _invalidate_teacher_custom_results_cache(teacher_id=current_user.id, custom_test_id=custom_test.id)
     db.delete(custom_test)
     db.commit()
     _invalidate_group_tests_cache(db=db, group_ids=affected_group_ids)
@@ -666,11 +893,13 @@ def _serialize_custom_test(*, db: DBSession, custom_test_id: int, teacher_id: in
             ]
             correct_option_index = (correct_ids[0] - 1) if correct_ids else None
             sample_answer = None
+            image_data_url = str((question.options_json or {}).get("image_data_url", "")).strip() or None
         else:
             options = []
             answer_type = "free_text"
             correct_option_index = None
             sample_answer = str((question.correct_answer_json or {}).get("sample_answer", "")).strip() or None
+            image_data_url = str((question.options_json or {}).get("image_data_url", "")).strip() or None
 
         questions.append(
             {
@@ -681,6 +910,7 @@ def _serialize_custom_test(*, db: DBSession, custom_test_id: int, teacher_id: in
                 "options": options,
                 "correct_option_index": correct_option_index,
                 "sample_answer": sample_answer,
+                "image_data_url": image_data_url,
             }
         )
 
@@ -689,6 +919,7 @@ def _serialize_custom_test(*, db: DBSession, custom_test_id: int, teacher_id: in
         title=custom_test.title,
         duration_minutes=max(1, custom_test.time_limit_seconds // 60),
         warning_limit=custom_test.warning_limit,
+        due_date=custom_test.due_date,
         questions_count=len(custom_test.questions),
         groups=_serialize_custom_groups(custom_test),
         created_at=custom_test.created_at,
@@ -713,11 +944,147 @@ def _serialize_custom_test_list_item(custom_test: TeacherAuthoredTest) -> Teache
         title=custom_test.title,
         duration_minutes=max(1, custom_test.time_limit_seconds // 60),
         warning_limit=custom_test.warning_limit,
+        due_date=custom_test.due_date,
         questions_count=len(custom_test.questions),
         groups=_serialize_custom_groups(custom_test),
         created_at=custom_test.created_at,
         updated_at=custom_test.updated_at,
     )
+
+
+def _build_custom_test_results_payload(
+    *,
+    db: DBSession,
+    custom_test: TeacherAuthoredTest,
+    selected_group_ids: list[int],
+) -> tuple[list[TeacherCustomTestResultsGroupItem], list[TeacherCustomTestResultsStudentItem]]:
+    assigned_groups = []
+    for link in custom_test.group_links:
+        if not link.group:
+            continue
+        assigned_groups.append(link.group)
+    assigned_groups = sorted(assigned_groups, key=lambda group: group.name.lower())
+    assigned_group_ids = {group.id for group in assigned_groups}
+
+    filtered_group_ids = sorted({int(group_id) for group_id in selected_group_ids if int(group_id) in assigned_group_ids})
+    active_group_ids = filtered_group_ids or sorted(assigned_group_ids)
+
+    members_rows = []
+    if active_group_ids:
+        members_rows = db.execute(
+            select(GroupMembership)
+            .options(
+                joinedload(GroupMembership.student),
+                joinedload(GroupMembership.group),
+            )
+            .where(GroupMembership.group_id.in_(active_group_ids))
+            .order_by(GroupMembership.id.asc())
+        ).scalars().all()
+
+    students_index: dict[tuple[int, int], dict] = {}
+    for row in members_rows:
+        if not row.student or not row.group:
+            continue
+        student_id = int(row.student_id)
+        group_id = int(row.group_id)
+        membership_key = (student_id, group_id)
+        if membership_key in students_index:
+            continue
+        students_index[membership_key] = {
+            "student_id": student_id,
+            "full_name": (row.student.full_name or row.student.username),
+            "group_id": group_id,
+            "group_name": row.group.name,
+            "percent": None,
+            "warning_count": None,
+            "submitted_at": None,
+            "latest_test_id": None,
+        }
+
+    student_ids = sorted({key[0] for key in students_index.keys()})
+    latest_attempt_by_membership: dict[tuple[int, int], Test] = {}
+    latest_attempt_by_student: dict[int, Test] = {}
+    if student_ids:
+        unresolved_memberships: set[tuple[int, int]] = set(students_index.keys())
+        unresolved_students: set[int] = set(student_ids)
+        candidate_tests = db.scalars(
+            select(Test)
+            .join(TestSession, TestSession.test_id == Test.id)
+            .options(
+                joinedload(Test.session),
+                joinedload(Test.result),
+            )
+            .where(
+                Test.student_id.in_(student_ids),
+                TestSession.exam_kind == "group_custom",
+                TestSession.submitted_at.is_not(None),
+                Test.created_at >= custom_test.created_at,
+            )
+            .order_by(Test.created_at.asc(), Test.id.asc())
+        ).all()
+        for test in candidate_tests:
+            session = test.session
+            if not session:
+                continue
+            config = session.exam_config_json or {}
+            custom_test_id = config.get("custom_test_id")
+            if not isinstance(custom_test_id, int) and not (isinstance(custom_test_id, str) and custom_test_id.isdigit()):
+                continue
+            if int(custom_test_id) != custom_test.id:
+                continue
+            cfg_group_id = config.get("group_id")
+            if isinstance(cfg_group_id, str) and cfg_group_id.isdigit():
+                cfg_group_id = int(cfg_group_id)
+            if isinstance(cfg_group_id, int):
+                if active_group_ids and cfg_group_id not in active_group_ids:
+                    continue
+                membership_key = (int(test.student_id), cfg_group_id)
+                if membership_key in unresolved_memberships:
+                    latest_attempt_by_membership[membership_key] = test
+                    unresolved_memberships.discard(membership_key)
+                    unresolved_students.discard(int(test.student_id))
+                continue
+
+            student_key = int(test.student_id)
+            if student_key in unresolved_students:
+                latest_attempt_by_student[student_key] = test
+                unresolved_students.discard(student_key)
+
+            if not unresolved_memberships and not unresolved_students:
+                break
+
+    students_payload: list[TeacherCustomTestResultsStudentItem] = []
+    for membership_key, item in students_index.items():
+        latest = latest_attempt_by_membership.get(membership_key) or latest_attempt_by_student.get(item["student_id"])
+        if latest and latest.result and latest.session:
+            item["percent"] = float(latest.result.percent)
+            item["warning_count"] = int(latest.session.warning_count or 0)
+            item["submitted_at"] = latest.session.submitted_at or latest.created_at
+            item["latest_test_id"] = int(latest.id)
+        students_payload.append(TeacherCustomTestResultsStudentItem(**item))
+
+    students_payload.sort(key=lambda item: (item.full_name.lower(), item.group_name.lower()))
+
+    member_count_by_group: dict[int, int] = {}
+    if assigned_group_ids:
+        for row in db.execute(
+            select(GroupMembership.group_id, func.count(GroupMembership.id))
+            .where(GroupMembership.group_id.in_(sorted(assigned_group_ids)))
+            .group_by(GroupMembership.group_id)
+        ).all():
+            member_count_by_group[int(row[0])] = int(row[1] or 0)
+
+    groups_payload = [
+        TeacherCustomTestResultsGroupItem(
+            id=int(group.id),
+            name=group.name,
+            members_count=member_count_by_group.get(int(group.id), 0),
+            selected=(int(group.id) in active_group_ids),
+        )
+        for group in assigned_groups
+    ]
+
+    return groups_payload, students_payload
 
 
 def _invalidate_group_tests_cache(*, db: DBSession, group_ids: list[int]) -> None:
@@ -727,9 +1094,27 @@ def _invalidate_group_tests_cache(*, db: DBSession, group_ids: list[int]) -> Non
     student_ids = db.scalars(
         select(GroupMembership.student_id).where(GroupMembership.group_id.in_(unique_group_ids))
     ).all()
-    keys = [f"student:{student_id}:group-tests:v1" for student_id in student_ids if student_id]
+    keys = [f"student:{student_id}:group-tests:v2" for student_id in student_ids if student_id]
     if keys:
         cache.delete_many(*keys)
+
+
+def _invalidate_teacher_custom_results_cache(*, teacher_id: int, custom_test_id: int) -> None:
+    if int(teacher_id) <= 0 or int(custom_test_id) <= 0:
+        return
+    cache.delete_pattern(f"teacher:{int(teacher_id)}:custom-test:{int(custom_test_id)}:results:*")
+
+
+def _teacher_custom_results_cache_key(*, teacher_id: int, custom_test_id: int, group_ids: list[int]) -> str:
+    suffix = ",".join(str(group_id) for group_id in sorted({int(group_id) for group_id in group_ids if int(group_id) > 0}))
+    return f"teacher:{teacher_id}:custom-test:{custom_test_id}:results:{suffix or 'all'}:v1"
+
+
+def _sanitize_csv_cell(value: str) -> str:
+    normalized = str(value or "")
+    if normalized.startswith(("=", "+", "-", "@")):
+        return f"'{normalized}"
+    return normalized
 
 
 def _extract_keywords(sample_answer: str) -> list[str]:

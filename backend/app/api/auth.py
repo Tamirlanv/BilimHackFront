@@ -50,6 +50,20 @@ def register(payload: RegisterRequest, request: Request, response: Response, db:
     if username_exists:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Пользователь с таким именем пользователя уже существует")
 
+    if payload.role == UserRole.teacher:
+        configured_admin_key = (settings.admin_key or "").strip()
+        provided_admin_key = (payload.admin_key or "").strip()
+        if not configured_admin_key:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Регистрация преподавателей временно недоступна. Обратитесь к администратору платформы.",
+            )
+        if configured_admin_key != provided_admin_key:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Неверный ключ администратора.",
+            )
+
     if settings.email_verification_enabled:
         if not payload.email_verification_code:
             raise HTTPException(

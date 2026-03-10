@@ -31,16 +31,38 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = 30
     use_http_only_refresh_cookie: bool = False
     refresh_cookie_name: str = "oku_refresh_token"
+    admin_key: str = ""
 
     cors_origins: str = Field(
         default="http://localhost:3000",
         validation_alias=AliasChoices("CORS_ORIGINS", "BACKEND_CORS_ORIGINS"),
     )
 
-    ai_provider: str = "mock"
+    ai_provider: str = "openai"
+    student_ai_provider: str = "openai"
+    teacher_ai_provider: str = "openai"
+    openai_api_key: str = ""
+    openai_api_key_student: str = ""
+    openai_api_key_teacher: str = ""
+    openai_base_url: str = "https://api.openai.com/v1"
+    openai_model: str = "gpt-5"
+    openai_model_fallbacks: str = "gpt-4.1-mini,gpt-4o-mini"
+    openai_timeout_seconds: int = 45
     deepseek_api_key: str = ""
     deepseek_base_url: str = "https://api.deepseek.com/v1"
     deepseek_model: str = "deepseek-chat"
+    gemini_api_key: str = ""
+    gemini_api_key_one: str = ""
+    gemini_api_key_two: str = ""
+    gemini_api_key_student: str = ""
+    gemini_api_key_teacher: str = ""
+    gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
+    gemini_model: str = "gemini-2.5-flash"
+    claude_api_key: str = ""
+    claude_base_url: str = "https://api.anthropic.com/v1"
+    claude_model: str = "claude-sonnet-4-5"
+    claude_max_tokens: int = 1024
+    semantic_grading_max_ai_calls_per_test: int = 3
 
     tts_provider: str = "auto"
     tts_voice: str = "default"
@@ -99,7 +121,26 @@ class Settings(BaseSettings):
 
     @property
     def cors_origins_list(self) -> list[str]:
-        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+        origins: list[str] = []
+        for raw_origin in self.cors_origins.split(","):
+            normalized = raw_origin.strip().rstrip("/")
+            if normalized:
+                origins.append(normalized)
+
+        # In local/dev mode, always allow common local frontend origins.
+        if self.app_env.lower() != "production":
+            origins.extend(
+                [
+                    "http://localhost:3000",
+                    "http://127.0.0.1:3000",
+                ]
+            )
+
+        unique_origins: list[str] = []
+        for origin in origins:
+            if origin not in unique_origins:
+                unique_origins.append(origin)
+        return unique_origins
 
     @property
     def api_prefix_normalized(self) -> str:
@@ -111,6 +152,70 @@ class Settings(BaseSettings):
     @property
     def jwt_refresh_secret(self) -> str:
         return self.jwt_refresh_secret_key.strip() or self.jwt_secret_key.strip()
+
+    def get_openai_api_key(self, audience: str | None = None) -> str:
+        normalized_audience = str(audience or "").strip().lower()
+        if normalized_audience == "teacher":
+            return (
+                self.openai_api_key_teacher.strip()
+                or self.openai_api_key.strip()
+                or self.openai_api_key_student.strip()
+            )
+        if normalized_audience == "student":
+            return (
+                self.openai_api_key_student.strip()
+                or self.openai_api_key.strip()
+                or self.openai_api_key_teacher.strip()
+            )
+        return (
+            self.openai_api_key.strip()
+            or self.openai_api_key_teacher.strip()
+            or self.openai_api_key_student.strip()
+        )
+
+    def get_openai_api_keys(self, audience: str | None = None) -> list[str]:
+        normalized_audience = str(audience or "").strip().lower()
+        if normalized_audience == "teacher":
+            ordered = [
+                self.openai_api_key_teacher.strip(),
+                self.openai_api_key.strip(),
+                self.openai_api_key_student.strip(),
+            ]
+        elif normalized_audience == "student":
+            ordered = [
+                self.openai_api_key_student.strip(),
+                self.openai_api_key.strip(),
+                self.openai_api_key_teacher.strip(),
+            ]
+        else:
+            ordered = [
+                self.openai_api_key.strip(),
+                self.openai_api_key_teacher.strip(),
+                self.openai_api_key_student.strip(),
+            ]
+
+        unique: list[str] = []
+        for key in ordered:
+            if key and key not in unique:
+                unique.append(key)
+        return unique
+
+    def get_openai_model_candidates(self) -> list[str]:
+        primary = (self.openai_model or "").strip() or "gpt-5"
+        raw_fallbacks = [
+            item.strip()
+            for item in str(self.openai_model_fallbacks or "").split(",")
+            if item.strip()
+        ]
+        # Safety fallback: even if OPENAI_MODEL_FALLBACKS is empty in env,
+        # keep a couple of broadly available models so generation can continue.
+        safety_fallbacks = ["gpt-4.1-mini", "gpt-4o-mini"]
+        ordered = [primary, *raw_fallbacks, *safety_fallbacks]
+        unique: list[str] = []
+        for model in ordered:
+            if model not in unique:
+                unique.append(model)
+        return unique
 
     @field_validator("debug", mode="before")
     @classmethod
@@ -124,7 +229,6 @@ class Settings(BaseSettings):
             if normalized in {"0", "false", "no", "off", "release", "prod", "production"}:
                 return False
         return bool(value)
-
 
 @lru_cache
 def get_settings() -> Settings:

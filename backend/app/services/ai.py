@@ -12,8 +12,8 @@ from typing import Any
 from app.core.config import settings
 from app.models import DifficultyLevel, PreferredLanguage, QuestionType, Subject, TestMode
 from app.schemas.tests import GeneratedQuestionPayload, GeneratedTestPayload
-from app.services.llm import LLMProviderError, llm_chat
-from app.services.question_bank import _pick, get_distractors, get_text_question_templates
+from app.services.llm import LLMProviderError, is_llm_provider_configured, llm_chat
+from app.services.question_bank import SUBJECT_FACT_BANK, _pick, get_distractors, get_text_question_templates
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +28,18 @@ class AIService:
     OPTION_LABELS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     LIBRARY_QUESTIONS_PER_COMBINATION = 25
 
+    @staticmethod
+    def _student_provider_name() -> str:
+        return (settings.student_ai_provider or settings.ai_provider or "openai").strip().lower() or "openai"
+
+    @staticmethod
+    def _teacher_provider_name() -> str:
+        return (settings.teacher_ai_provider or settings.ai_provider or "openai").strip().lower() or "openai"
+
+    def _llm_is_configured(self, *, audience: str) -> bool:
+        provider_name = self._teacher_provider_name() if audience == "teacher" else self._student_provider_name()
+        return is_llm_provider_configured(provider_name, audience=audience)
+
     def generate_test(
         self,
         *,
@@ -39,38 +51,45 @@ class AIService:
         user_id: int,
         focus_topics: Sequence[str] | None = None,
         used_library_question_ids: set[str] | None = None,
+        used_library_content_keys: set[str] | None = None,
     ) -> GeneratedTestPayload:
         seed = f"{int(time.time() * 1000)}-{user_id}-{subject.id}-{difficulty.value}"
         normalized_focus_topics = [str(topic).strip() for topic in (focus_topics or []) if str(topic).strip()]
         used_library_ids = set(used_library_question_ids or set())
+        used_library_keys = {str(value).strip().lower() for value in (used_library_content_keys or set()) if str(value).strip()}
 
-        # First serve questions from local library (no DeepSeek calls).
-        library_pool = self._generate_general_library_questions(
+        difficulty_order: list[DifficultyLevel] = []
+        for item in (difficulty, DifficultyLevel.medium, DifficultyLevel.easy, DifficultyLevel.hard):
+            if item not in difficulty_order:
+                difficulty_order.append(item)
+
+        # Fast path: generate only from local library first (no external LLM calls).
+        library_pool = self.generate_library_only_questions(
             subject=subject,
-            difficulty=difficulty,
             language=language,
             mode=mode,
+            num_questions=min(260, max(num_questions * 5, num_questions + 12, self.LIBRARY_QUESTIONS_PER_COMBINATION * 2)),
+            seed=f"{seed}-library-fast",
+            difficulty_order=difficulty_order,
+            used_library_question_ids=used_library_ids,
+            used_library_content_keys=used_library_keys,
         )
-        available_library_questions: list[GeneratedQuestionPayload] = []
-        for item in library_pool:
-            library_id = str((item.explanation_json or {}).get("library_question_id", "")).strip()
-            if library_id and library_id in used_library_ids:
-                continue
-            available_library_questions.append(item)
 
         rng = random.Random(f"{seed}-library")
         selected_library = self._sample_library_questions(
-            questions=available_library_questions,
+            questions=library_pool,
             limit=num_questions,
             rng=rng,
+            focus_topics=normalized_focus_topics,
         )
         if len(selected_library) >= num_questions:
             return GeneratedTestPayload(seed=seed, questions=selected_library)
 
-        if selected_library:
-            remaining = num_questions - len(selected_library)
-            fallback_sources: list[list[GeneratedQuestionPayload]] = [list(selected_library)]
+        fallback_sources: list[list[GeneratedQuestionPayload]] = [list(selected_library)] if selected_library else []
+        remaining = max(0, num_questions - len(selected_library))
+        merged = list(selected_library)
 
+        if remaining > 0:
             generated = self._generate_non_library_test(
                 subject=subject,
                 difficulty=difficulty,
@@ -82,52 +101,47 @@ class AIService:
             )
             fallback_sources.append(list(generated.questions))
             merged = self._merge_unique_questions(
-                groups=[selected_library, generated.questions],
+                groups=[merged, generated.questions],
                 target_count=num_questions,
             )
-            if len(merged) < num_questions:
-                extra = self._generate_non_library_test(
-                    subject=subject,
-                    difficulty=difficulty,
-                    language=language,
-                    mode=mode,
-                    num_questions=max(num_questions, num_questions - len(merged) + 2),
-                    seed=f"{seed}-after-library-topup",
-                    focus_topics=normalized_focus_topics,
-                )
-                fallback_sources.append(list(extra.questions))
-                merged = self._merge_unique_questions(
-                    groups=[merged, extra.questions],
-                    target_count=num_questions,
-                )
-            if len(merged) < num_questions:
-                merged = self._fill_questions_to_target(
-                    current=merged,
-                    fallback_groups=fallback_sources,
-                    target_count=num_questions,
-                )
-            if len(merged) < num_questions:
-                merged = self._top_up_unique_questions(
-                    current=merged,
-                    subject=subject,
-                    difficulty=difficulty,
-                    language=language,
-                    mode=mode,
-                    target_count=num_questions,
-                    focus_topics=normalized_focus_topics,
-                    seed=f"{seed}-unique-topup",
-                )
+
+        if len(merged) < num_questions:
+            deterministic_topup = self._generate_test_mock(
+                subject=subject,
+                difficulty=difficulty,
+                language=language,
+                mode=mode,
+                num_questions=max(num_questions - len(merged) + 2, 4),
+                seed=f"{seed}-deterministic-topup",
+                focus_topics=normalized_focus_topics,
+            )
+            fallback_sources.append(list(deterministic_topup.questions))
+            merged = self._merge_unique_questions(
+                groups=[merged, deterministic_topup.questions],
+                target_count=num_questions,
+            )
+
+        if len(merged) < num_questions:
+            merged = self._fill_questions_to_target(
+                current=merged,
+                fallback_groups=fallback_sources,
+                target_count=num_questions,
+            )
+
+        if len(merged) >= num_questions:
             return GeneratedTestPayload(seed=seed, questions=merged[:num_questions])
 
-        return self._generate_non_library_test(
+        topped_up = self._top_up_unique_questions(
+            current=merged,
             subject=subject,
             difficulty=difficulty,
             language=language,
             mode=mode,
-            num_questions=num_questions,
-            seed=seed,
+            target_count=num_questions,
             focus_topics=normalized_focus_topics,
+            seed=f"{seed}-unique-topup",
         )
+        return GeneratedTestPayload(seed=seed, questions=topped_up[:num_questions])
 
     def generate_library_only_questions(
         self,
@@ -305,13 +319,19 @@ class AIService:
         questions: Sequence[GeneratedQuestionPayload],
         limit: int,
         rng: random.Random,
+        focus_topics: Sequence[str] | None = None,
     ) -> list[GeneratedQuestionPayload]:
         if limit <= 0:
             return []
 
+        normalized_focus = [item.lower() for item in (focus_topics or []) if item]
         ranked = sorted(
             questions,
-            key=lambda item: (self._is_variant_prompt(item.prompt), rng.random()),
+            key=lambda item: (
+                0 if self._question_matches_focus(item, normalized_focus) else 1,
+                self._is_variant_prompt(item.prompt),
+                rng.random(),
+            ),
         )
         selected: list[GeneratedQuestionPayload] = []
         seen_unique_keys: set[str] = set()
@@ -344,6 +364,15 @@ class AIService:
                     break
 
         return selected
+
+    @staticmethod
+    def _question_matches_focus(question: GeneratedQuestionPayload, focus_topics: Sequence[str]) -> bool:
+        if not focus_topics:
+            return False
+        explanation = dict(question.explanation_json or {})
+        topic = str(explanation.get("topic", "")).strip().lower()
+        prompt = str(question.prompt or "").strip().lower()
+        return any(item and (item in topic or item in prompt) for item in focus_topics)
 
     def _merge_unique_questions(
         self,
@@ -492,21 +521,748 @@ class AIService:
         language: PreferredLanguage,
         weak_topics: Sequence[str],
     ) -> RecommendationPayload:
-        if settings.ai_provider.lower() == "deepseek" and settings.deepseek_api_key:
+        if self._llm_is_configured(audience="student"):
             try:
-                return self._generate_recommendation_deepseek(
+                return self._generate_recommendation_llm(
                     subject=subject,
                     language=language,
                     weak_topics=list(weak_topics),
                 )
             except Exception as exc:  # noqa: BLE001
-                logger.warning("DeepSeek recommendation failed, fallback to mock: %s", exc)
+                logger.warning("LLM recommendation failed, fallback to mock: %s", exc)
 
         return self._generate_recommendation_mock(
             subject=subject,
             language=language,
             weak_topics=list(weak_topics),
         )
+
+    def generate_teacher_custom_material(
+        self,
+        *,
+        topic: str,
+        difficulty: DifficultyLevel,
+        language: PreferredLanguage,
+        questions_count: int,
+        user_id: int,
+    ) -> list[dict[str, Any]]:
+        normalized_topic = topic.strip()
+        if not normalized_topic:
+            raise ValueError("Тема не может быть пустой")
+
+        seed = f"teacher-custom-{int(time.time() * 1000)}-{user_id}-{difficulty.value}"
+        try:
+            if self._llm_is_configured(audience="teacher"):
+                aggregated: list[dict[str, Any]] = []
+                seen_prompt_keys: set[str] = set()
+                last_exc: Exception | None = None
+                generated_batches: list[dict[str, Any]] = []
+                try:
+                    generated_batches.extend(
+                        self._generate_teacher_custom_material_llm(
+                            topic=normalized_topic,
+                            difficulty=difficulty,
+                            language=language,
+                            questions_count=questions_count,
+                            seed=f"{seed}-batch-1",
+                        )
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    last_exc = exc
+                    logger.warning("LLM teacher material generation batch failed: %s", exc)
+
+                for item in generated_batches:
+                    prompt_key = self._semantic_prompt_key(str(item.get("prompt", "")))
+                    if not prompt_key or prompt_key in seen_prompt_keys:
+                        continue
+                    seen_prompt_keys.add(prompt_key)
+                    aggregated.append(item)
+                    if len(aggregated) >= questions_count:
+                        break
+
+                if len(aggregated) >= questions_count:
+                    return aggregated[:questions_count]
+
+                if aggregated and len(aggregated) < questions_count:
+                    # One additional LLM top-up attempt before deterministic fallback.
+                    fallback_needed = questions_count - len(aggregated)
+                    try:
+                        topup_questions = self._generate_teacher_custom_material_llm(
+                            topic=normalized_topic,
+                            difficulty=difficulty,
+                            language=language,
+                            questions_count=min(questions_count, fallback_needed + 2),
+                            seed=f"{seed}-topup",
+                        )
+                        for item in topup_questions:
+                            prompt_key = self._semantic_prompt_key(str(item.get("prompt", "")))
+                            if not prompt_key or prompt_key in seen_prompt_keys:
+                                continue
+                            seen_prompt_keys.add(prompt_key)
+                            aggregated.append(item)
+                            if len(aggregated) >= questions_count:
+                                break
+                    except Exception as exc:  # noqa: BLE001
+                        last_exc = exc
+                        logger.warning("LLM teacher material generation top-up failed: %s", exc)
+
+                    if len(aggregated) >= questions_count:
+                        return aggregated[:questions_count]
+
+                    fallback_questions = self._generate_teacher_custom_material_fallback(
+                        topic=normalized_topic,
+                        difficulty=difficulty,
+                        language=language,
+                        questions_count=fallback_needed + 4,
+                        seed=f"{seed}-fallback",
+                    )
+                    for item in fallback_questions:
+                        prompt_key = self._semantic_prompt_key(str(item.get("prompt", "")))
+                        if not prompt_key or prompt_key in seen_prompt_keys:
+                            continue
+                        seen_prompt_keys.add(prompt_key)
+                        aggregated.append(item)
+                        if len(aggregated) >= questions_count:
+                            break
+                    if len(aggregated) >= questions_count:
+                        return aggregated[:questions_count]
+
+                if last_exc is not None:
+                    raise ValueError(
+                        f"LLM не смог сгенерировать релевантный материал по теме «{normalized_topic}»: "
+                        f"{self._format_teacher_llm_error(last_exc)}"
+                    ) from last_exc
+                raise ValueError(
+                    f"LLM вернул недостаточно релевантных вопросов по теме «{normalized_topic}». "
+                    "Попробуйте уточнить тему."
+                )
+            else:
+                logger.info("LLM provider is not configured; teacher material falls back to deterministic builder.")
+
+            return self._generate_teacher_custom_material_fallback(
+                topic=normalized_topic,
+                difficulty=difficulty,
+                language=language,
+                questions_count=questions_count,
+                seed=seed,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Teacher material generation failed: %s", exc)
+            raise
+
+    def _generate_teacher_custom_material_llm(
+        self,
+        *,
+        topic: str,
+        difficulty: DifficultyLevel,
+        language: PreferredLanguage,
+        questions_count: int,
+        seed: str,
+    ) -> list[dict[str, Any]]:
+        language_label = "русском" if language == PreferredLanguage.ru else "қазақ"
+        difficulty_hint = {
+            DifficultyLevel.easy: "Базовый уровень: определения, простые примеры, базовые факты.",
+            DifficultyLevel.medium: "Средний уровень: применение правил, сравнение и классификация.",
+            DifficultyLevel.hard: "Сложный уровень: анализ, причинно-следственные связи, интерпретация.",
+        }[difficulty]
+        free_text_target = {
+            DifficultyLevel.easy: 0,
+            DifficultyLevel.medium: max(1, questions_count // 5),
+            DifficultyLevel.hard: max(2, questions_count // 3),
+        }[difficulty]
+        input_payload = {
+            "topic": topic,
+            "difficulty": difficulty.value,
+            "language": language.value.upper(),
+            "questions_count": questions_count,
+            "free_text_target_min": free_text_target,
+            "seed": seed,
+        }
+        output_schema = {
+            "questions": [
+                {
+                    "answer_type": "choice|free_text",
+                    "prompt": "string",
+                    "options": ["string", "string", "string", "string"],
+                    "correct_option_index": 0,
+                    "sample_answer": "string|null",
+                }
+            ]
+        }
+        prompt = (
+            "Сгенерируй материал для конструктора теста преподавателя строго в JSON формате.\n"
+            "Верни ТОЛЬКО JSON-объект, без markdown, пояснений и префиксов.\n\n"
+            f"INPUT_JSON:\n{json.dumps(input_payload, ensure_ascii=False)}\n\n"
+            f"OUTPUT_SCHEMA_JSON:\n{json.dumps(output_schema, ensure_ascii=False)}\n\n"
+            "Требования:\n"
+            f"- {difficulty_hint}\n"
+            "- Все вопросы строго по теме INPUT_JSON.topic.\n"
+            "- Каждый prompt должен явно ссылаться на тему из INPUT_JSON.topic (прямое упоминание темы/имени).\n"
+            "- Вопросы не повторяются и не перефразируют один и тот же факт.\n"
+            "- answer_type=choice: ровно 4 опции, одна корректная, correct_option_index в диапазоне 0..3.\n"
+            "- answer_type=free_text: options=[], correct_option_index=null, sample_answer обязателен.\n"
+            "- answer_type=choice: sample_answer=null.\n"
+            "- Не использовать шаблонные/мета формулировки, например 'по теме выберите базовое утверждение'.\n"
+            f"- Язык вопросов строго: {language_label}.\n"
+            f"- Количество вопросов строго: {questions_count}.\n"
+            f"- Минимум вопросов free_text: {free_text_target}.\n"
+            "- Не используй markdown-блоки вида ```json.\n"
+            "- Формулируй тексты максимально лаконично, без длинных объяснений.\n"
+            "- Каждый вариант ответа: не длиннее 8 слов.\n"
+        )
+
+        teacher_generation_max_tokens = min(4000, max(1200, questions_count * 220))
+        content = self._call_llm(
+            prompt,
+            audience="teacher",
+            max_tokens=teacher_generation_max_tokens,
+            timeout_seconds=45,
+            temperature=0.2,
+        )
+        try:
+            data = self._extract_json(content)
+        except Exception:  # noqa: BLE001
+            retry_prompt = (
+                f"{prompt}\n\n"
+                "Повтори генерацию в более компактном виде.\n"
+                "Верни ТОЛЬКО JSON-объект без markdown и без текста до/после JSON.\n"
+                "Сократи формулировки вариантов ответа до 3-6 слов."
+            )
+            retried = self._call_llm(
+                retry_prompt,
+                audience="teacher",
+                max_tokens=teacher_generation_max_tokens,
+                timeout_seconds=45,
+                temperature=0.1,
+            )
+            data = self._extract_json(retried)
+        raw_questions = data.get("questions", [])
+        if not isinstance(raw_questions, list):
+            raw_questions = []
+
+        return self._sanitize_teacher_custom_material_questions(
+            raw_questions=raw_questions,
+            topic=topic,
+            difficulty=difficulty,
+            language=language,
+            questions_count=questions_count,
+            seed=seed,
+            allow_fallback=False,
+            require_topic_relevance=True,
+        )
+
+    def _generate_teacher_custom_material_fallback(
+        self,
+        *,
+        topic: str,
+        difficulty: DifficultyLevel,
+        language: PreferredLanguage,
+        questions_count: int,
+        seed: str,
+    ) -> list[dict[str, Any]]:
+        return self._sanitize_teacher_custom_material_questions(
+            raw_questions=[],
+            topic=topic,
+            difficulty=difficulty,
+            language=language,
+            questions_count=questions_count,
+            seed=seed,
+            allow_fallback=True,
+            require_topic_relevance=False,
+        )
+
+    def _sanitize_teacher_custom_material_questions(
+        self,
+        *,
+        raw_questions: Sequence[dict[str, Any] | Any],
+        topic: str,
+        difficulty: DifficultyLevel,
+        language: PreferredLanguage,
+        questions_count: int,
+        seed: str,
+        allow_fallback: bool = True,
+        require_topic_relevance: bool = False,
+    ) -> list[dict[str, Any]]:
+        rng = random.Random(seed)
+        normalized: list[dict[str, Any]] = []
+        seen_prompt_keys: set[str] = set()
+        free_text_target = {
+            DifficultyLevel.easy: 0,
+            DifficultyLevel.medium: max(1, questions_count // 5),
+            DifficultyLevel.hard: max(2, questions_count // 3),
+        }[difficulty]
+
+        for raw in raw_questions:
+            if not isinstance(raw, dict):
+                continue
+
+            prompt = re.sub(r"\s+", " ", str(raw.get("prompt", "")).strip())
+            if len(prompt) < 8:
+                continue
+            prompt_key = self._semantic_prompt_key(prompt)
+            if prompt_key in seen_prompt_keys:
+                continue
+
+            answer_type = "free_text" if str(raw.get("answer_type", "")).strip().lower() == "free_text" else "choice"
+            if answer_type == "choice":
+                raw_options = raw.get("options", [])
+                options = [re.sub(r"^[A-H]\.\s*", "", str(item).strip()) for item in (raw_options if isinstance(raw_options, list) else [])]
+                options = [item for item in options if item]
+                dedup_options: list[str] = []
+                seen_options: set[str] = set()
+                for item in options:
+                    key = item.lower()
+                    if key in seen_options:
+                        continue
+                    seen_options.add(key)
+                    dedup_options.append(item)
+                options = dedup_options[:4]
+
+                # Drop low-quality AI items and let deterministic topic-aware fallback build a better question.
+                if len(options) < 4 or self._is_placeholder_teacher_options(options=options, topic=topic):
+                    continue
+                if require_topic_relevance and not self._is_teacher_material_related_to_topic(
+                    topic=topic,
+                    prompt=prompt,
+                    options=options,
+                    sample_answer=None,
+                ):
+                    continue
+
+                try:
+                    correct_option_index = int(raw.get("correct_option_index", 0))
+                except Exception:  # noqa: BLE001
+                    correct_option_index = 0
+                if correct_option_index < 0 or correct_option_index > 3:
+                    correct_option_index = 0
+
+                normalized.append(
+                    {
+                        "prompt": prompt,
+                        "answer_type": "choice",
+                        "options": options,
+                        "correct_option_index": correct_option_index,
+                        "sample_answer": None,
+                    }
+                )
+            else:
+                sample_answer = re.sub(r"\s+", " ", str(raw.get("sample_answer", "")).strip())
+                if len(sample_answer) < 3:
+                    continue
+                if require_topic_relevance and not self._is_teacher_material_related_to_topic(
+                    topic=topic,
+                    prompt=prompt,
+                    options=[],
+                    sample_answer=sample_answer,
+                ):
+                    continue
+                normalized.append(
+                    {
+                        "prompt": prompt,
+                        "answer_type": "free_text",
+                        "options": [],
+                        "correct_option_index": None,
+                        "sample_answer": sample_answer,
+                    }
+                )
+
+            seen_prompt_keys.add(prompt_key)
+            if len(normalized) >= questions_count:
+                break
+
+        if not allow_fallback:
+            return normalized[:questions_count]
+
+        current_free_text_count = sum(1 for item in normalized if item["answer_type"] == "free_text")
+        fallback_pool = self._build_teacher_custom_fallback_pool(
+            topic=topic,
+            difficulty=difficulty,
+            language=language,
+            questions_count=max(questions_count * 2, 24),
+            seed=seed,
+        )
+        for payload in fallback_pool:
+            if len(normalized) >= questions_count:
+                break
+            prompt_key = self._semantic_prompt_key(str(payload.get("prompt", "")))
+            if not prompt_key or prompt_key in seen_prompt_keys:
+                continue
+            if payload.get("answer_type") == "free_text":
+                if current_free_text_count >= free_text_target and len(normalized) + 1 <= questions_count:
+                    # Prefer choice after free-text quota is reached.
+                    continue
+                current_free_text_count += 1
+            seen_prompt_keys.add(prompt_key)
+            normalized.append(payload)
+
+        # Final tiny safety net without placeholder phrasing.
+        idx = 0
+        while len(normalized) < questions_count:
+            idx += 1
+            payload = self._build_teacher_custom_generic_question(
+                topic=topic,
+                language=language,
+                index=idx,
+                free_text=(
+                    current_free_text_count < free_text_target
+                    and (len(normalized) - current_free_text_count) >= 1
+                ),
+            )
+            if payload["answer_type"] == "free_text":
+                current_free_text_count += 1
+            prompt_key = self._semantic_prompt_key(payload["prompt"])
+            if prompt_key in seen_prompt_keys:
+                continue
+            seen_prompt_keys.add(prompt_key)
+            normalized.append(payload)
+
+        return normalized[:questions_count]
+
+    def _is_teacher_material_related_to_topic(
+        self,
+        *,
+        topic: str,
+        prompt: str,
+        options: Sequence[str],
+        sample_answer: str | None,
+    ) -> bool:
+        topic_lower = topic.strip().lower()
+        if not topic_lower:
+            return True
+
+        text = " ".join(
+            [
+                prompt or "",
+                " ".join(options or []),
+                sample_answer or "",
+            ]
+        ).lower()
+
+        if topic_lower in text:
+            return True
+
+        aliases: list[str] = []
+        if any(key in topic_lower for key in ("ооп", "oop")):
+            aliases.extend(
+                [
+                    "объектно-ориент",
+                    "object-oriented",
+                    "object oriented",
+                    "класс",
+                    "инкапсуляц",
+                    "наследован",
+                    "полиморф",
+                ]
+            )
+        for token in self._topic_tokens(topic):
+            aliases.append(token)
+
+        normalized_aliases: list[str] = []
+        for alias in aliases:
+            item = alias.strip().lower()
+            if len(item) < 2 or item in normalized_aliases:
+                continue
+            normalized_aliases.append(item)
+
+        if not normalized_aliases:
+            return True
+
+        return any(alias in text for alias in normalized_aliases)
+
+    @staticmethod
+    def _topic_tokens(topic: str) -> list[str]:
+        tokens = re.findall(r"[a-zа-яәіңғүұқөһ0-9]+", topic.lower())
+        output: list[str] = []
+        for token in tokens:
+            if len(token) < 2:
+                continue
+            if token in output:
+                continue
+            output.append(token)
+        return output
+
+    def _is_placeholder_teacher_options(self, *, options: Sequence[str], topic: str) -> bool:
+        if not options:
+            return True
+        topic_lower = topic.strip().lower()
+        generic_patterns = (
+            "верное определение по теме",
+            "причина, связанная с темой",
+            "пример практического применения темы",
+            "типичная ошибка в теме",
+            "ключевой факт по теме",
+            "утверждение о последствиях",
+            "сравнение подходов в теме",
+            "обобщающий вывод по теме",
+            "тақырыбы бойынша дұрыс анықтама",
+            "тақырыбына қатысты себеп",
+            "практикалық мысалы",
+        )
+        hit_count = 0
+        for option in options:
+            value = str(option).strip().lower()
+            if not value:
+                continue
+            if any(pattern in value for pattern in generic_patterns):
+                hit_count += 1
+            if topic_lower and topic_lower in value and len(value) < max(40, len(topic_lower) + 24):
+                hit_count += 1
+        return hit_count >= max(2, len(options) // 2)
+
+    def _build_teacher_custom_fallback_pool(
+        self,
+        *,
+        topic: str,
+        difficulty: DifficultyLevel,
+        language: PreferredLanguage,
+        questions_count: int,
+        seed: str,
+    ) -> list[dict[str, Any]]:
+        rng = random.Random(f"{seed}-teacher-fallback")
+        topic_tokens = self._topic_tokens(topic)
+        lang_key = "ru" if language == PreferredLanguage.ru else "kz"
+        matched: list[tuple[float, str, dict[str, Any]]] = []
+        subject_scores: dict[str, float] = {}
+
+        # Curated topic packs for high-value custom themes (e.g., ООП).
+        curated = self._teacher_topic_curated_facts(topic=topic, language=language)
+        for item in curated:
+            matched.append((1000.0, "информатика", item))
+            subject_scores["информатика"] = subject_scores.get("информатика", 0.0) + 1000.0
+
+        for subject_key, facts in SUBJECT_FACT_BANK.items():
+            for fact in facts:
+                prompt = str(fact.get(f"prompt_{lang_key}", "")).strip()
+                fact_topic = str(fact.get(f"topic_{lang_key}", "")).strip()
+                if not prompt:
+                    continue
+                haystack = f"{fact_topic} {prompt}".lower()
+                score = 0.0
+                topic_lower = topic.lower().strip()
+                if topic_lower and (topic_lower in haystack or haystack in topic_lower):
+                    score += 8.0
+                for token in topic_tokens:
+                    if token in haystack:
+                        score += 1.8
+                if score <= 0:
+                    continue
+                matched.append((score, subject_key, fact))
+                subject_scores[subject_key] = subject_scores.get(subject_key, 0.0) + score
+
+        matched.sort(key=lambda pair: pair[0], reverse=True)
+        if matched:
+            top: list[tuple[float, str, dict[str, Any]]] = matched[: max(questions_count * 3, 32)]
+            # If exact topic matches are sparse, continue from the best matched subject.
+            best_subject = max(subject_scores.items(), key=lambda item: item[1])[0] if subject_scores else None
+            if best_subject and len(top) < max(questions_count * 2, 12):
+                for fact in SUBJECT_FACT_BANK.get(best_subject, []):
+                    if any(existing_fact is fact for _, _, existing_fact in top):
+                        continue
+                    top.append((0.2, best_subject, fact))
+                    if len(top) >= max(questions_count * 4, 24):
+                        break
+        else:
+            # No direct matches: take broad school facts from multiple subjects to avoid empty placeholders.
+            top: list[tuple[float, str, dict[str, Any]]] = []
+            for subject_key, facts in SUBJECT_FACT_BANK.items():
+                for fact in facts[:3]:
+                    top.append((0.1, subject_key, fact))
+            rng.shuffle(top)
+
+        pool: list[dict[str, Any]] = []
+        seen_prompts: set[str] = set()
+        for _, _, fact in top:
+            prompt = str(fact.get(f"prompt_{lang_key}", "")).strip()
+            options = [str(item).strip() for item in (fact.get(f"options_{lang_key}", []) or []) if str(item).strip()]
+            correct_ids = [int(item) for item in (fact.get("correct_option_ids", []) or []) if isinstance(item, int)]
+            correct_option_index = correct_ids[0] if correct_ids else 0
+            if not prompt or len(options) < 4 or correct_option_index < 0 or correct_option_index >= len(options):
+                continue
+            prompt_key = self._semantic_prompt_key(prompt)
+            if prompt_key in seen_prompts:
+                continue
+            seen_prompts.add(prompt_key)
+            pool.append(
+                {
+                    "prompt": prompt,
+                    "answer_type": "choice",
+                    "options": options[:4],
+                    "correct_option_index": int(correct_option_index),
+                    "sample_answer": None,
+                }
+            )
+
+            # Add free-text companions for medium/hard difficulties.
+            if difficulty != DifficultyLevel.easy:
+                fact_topic = str(fact.get(f"topic_{lang_key}", "")).strip() or topic
+                explanation = str(fact.get(f"explanation_{lang_key}", "")).strip()
+                free_prompt = (
+                    f"Кратко объясните ключевое правило темы «{fact_topic}» и приведите 1 пример."
+                    if language == PreferredLanguage.ru
+                    else f"«{fact_topic}» тақырыбының негізгі ережесін қысқаша түсіндіріп, 1 мысал келтіріңіз."
+                )
+                free_key = self._semantic_prompt_key(free_prompt)
+                if free_key not in seen_prompts:
+                    seen_prompts.add(free_key)
+                    pool.append(
+                        {
+                            "prompt": free_prompt,
+                            "answer_type": "free_text",
+                            "options": [],
+                            "correct_option_index": None,
+                            "sample_answer": explanation or (
+                                f"Ключевое правило темы «{fact_topic}» объяснено корректно."
+                                if language == PreferredLanguage.ru
+                                else f"«{fact_topic}» тақырыбының негізгі ережесі дұрыс түсіндірілген."
+                            ),
+                        }
+                    )
+
+            if len(pool) >= questions_count:
+                break
+
+        rng.shuffle(pool)
+        return pool
+
+    def _teacher_topic_curated_facts(self, *, topic: str, language: PreferredLanguage) -> list[dict[str, Any]]:
+        topic_lower = topic.lower()
+        oop_keywords = ("ооп", "oop", "object oriented", "объектно-ориент", "класс", "инкапсуляц", "полиморф")
+        if not any(key in topic_lower for key in oop_keywords):
+            return []
+
+        if language == PreferredLanguage.ru:
+            return [
+                {
+                    "topic_ru": "ООП",
+                    "prompt_ru": "Что означает аббревиатура ООП?",
+                    "options_ru": [
+                        "Объектно-ориентированное программирование",
+                        "Объединённая обработка процессов",
+                        "Основной операционный протокол",
+                        "Общая оптимизация памяти",
+                    ],
+                    "correct_option_ids": [0],
+                    "explanation_ru": "ООП — это объектно-ориентированная парадигма программирования.",
+                },
+                {
+                    "topic_ru": "ООП",
+                    "prompt_ru": "Какой принцип ООП скрывает внутреннюю реализацию объекта?",
+                    "options_ru": ["Инкапсуляция", "Наследование", "Полиморфизм", "Рекурсия"],
+                    "correct_option_ids": [0],
+                    "explanation_ru": "Инкапсуляция ограничивает прямой доступ к внутреннему состоянию.",
+                },
+                {
+                    "topic_ru": "ООП",
+                    "prompt_ru": "Что в ООП обычно описывает структура класса?",
+                    "options_ru": ["Поля и методы", "IP-адрес и маску подсети", "Только комментарии", "Список библиотек ОС"],
+                    "correct_option_ids": [0],
+                    "explanation_ru": "Класс обычно содержит данные (поля) и поведение (методы).",
+                },
+                {
+                    "topic_ru": "ООП",
+                    "prompt_ru": "Что демонстрирует полиморфизм в ООП?",
+                    "options_ru": [
+                        "Один интерфейс — разные реализации",
+                        "Обязательное использование глобальных переменных",
+                        "Запрет переопределения методов",
+                        "Только работу с файлами",
+                    ],
+                    "correct_option_ids": [0],
+                    "explanation_ru": "Полиморфизм позволяет вызывать разные реализации через общий интерфейс.",
+                },
+                {
+                    "topic_ru": "ООП",
+                    "prompt_ru": "Что такое наследование в ООП?",
+                    "options_ru": [
+                        "Создание нового класса на основе существующего",
+                        "Преобразование типов без правил",
+                        "Удаление всех методов из класса",
+                        "Шифрование исходного кода",
+                    ],
+                    "correct_option_ids": [0],
+                    "explanation_ru": "Наследование позволяет переиспользовать и расширять поведение базового класса.",
+                },
+            ]
+
+        return [
+            {
+                "topic_kz": "ООП",
+                "prompt_kz": "ООП қысқартуы нені білдіреді?",
+                "options_kz": [
+                    "Объектіге бағытталған бағдарламалау",
+                    "Орталық операциялық процесс",
+                    "Ортақ оңтайландыру пакеті",
+                    "Объектіні өңдеу протоколы",
+                ],
+                "correct_option_ids": [0],
+                "explanation_kz": "ООП — объектіге бағытталған бағдарламалау парадигмасы.",
+            },
+            {
+                "topic_kz": "ООП",
+                "prompt_kz": "ООП-та объектінің ішкі жүзеге асуын қай қағида жасырады?",
+                "options_kz": ["Инкапсуляция", "Мұрагерлік", "Полиморфизм", "Итерация"],
+                "correct_option_ids": [0],
+                "explanation_kz": "Инкапсуляция объектінің ішкі күйін тікелей өзгертуді шектейді.",
+            },
+            {
+                "topic_kz": "ООП",
+                "prompt_kz": "Сынып (class) әдетте нені сипаттайды?",
+                "options_kz": ["Өрістер мен әдістерді", "Тек IP адресті", "Тек түсіндірме мәтінді", "Тек файл пішімін"],
+                "correct_option_ids": [0],
+                "explanation_kz": "Сынып деректерді (өрістер) және әрекеттерді (әдістер) біріктіреді.",
+            },
+        ]
+
+    def _build_teacher_custom_generic_question(
+        self,
+        *,
+        topic: str,
+        language: PreferredLanguage,
+        index: int,
+        free_text: bool,
+    ) -> dict[str, Any]:
+        if free_text:
+            prompt = (
+                f"Объясните ключевую идею темы «{topic}» и приведите один практический пример."
+                if language == PreferredLanguage.ru
+                else f"«{topic}» тақырыбының негізгі идеясын түсіндіріп, бір практикалық мысал келтіріңіз."
+            )
+            answer = (
+                f"Корректно объяснена суть темы «{topic}» и приведён релевантный пример."
+                if language == PreferredLanguage.ru
+                else f"«{topic}» тақырыбының мәні дұрыс түсіндіріліп, орынды мысал келтірілген."
+            )
+            return {
+                "prompt": prompt,
+                "answer_type": "free_text",
+                "options": [],
+                "correct_option_index": None,
+                "sample_answer": answer,
+            }
+
+        if language == PreferredLanguage.ru:
+            prompt = f"Какое утверждение о теме «{topic}» является наиболее корректным?"
+            options = [
+                f"Утверждение {index}: отражает ключевое правило темы «{topic}».",
+                f"Утверждение {index}: содержит подмену понятий и неточный термин.",
+                f"Утверждение {index}: игнорирует основное условие применения.",
+                f"Утверждение {index}: противоречит базовому определению темы.",
+            ]
+        else:
+            prompt = f"«{topic}» тақырыбы туралы ең дұрыс тұжырым қайсы?"
+            options = [
+                f"{index}-тұжырым: «{topic}» тақырыбының негізгі ережесін дұрыс береді.",
+                f"{index}-тұжырым: ұғымдарды шатастырып, терминді қате қолданады.",
+                f"{index}-тұжырым: қолдану шартын ескермейді.",
+                f"{index}-тұжырым: негізгі анықтамаға қайшы келеді.",
+            ]
+        return {
+            "prompt": prompt,
+            "answer_type": "choice",
+            "options": options,
+            "correct_option_index": 0,
+            "sample_answer": None,
+        }
 
     def _generate_non_library_test(
         self,
@@ -519,9 +1275,33 @@ class AIService:
         seed: str,
         focus_topics: Sequence[str],
     ) -> GeneratedTestPayload:
-        if settings.ai_provider.lower() == "deepseek" and settings.deepseek_api_key:
+        def ensure_exact_count(candidate_questions: Sequence[GeneratedQuestionPayload]) -> GeneratedTestPayload:
+            merged = self._merge_unique_questions(
+                groups=[list(candidate_questions)],
+                target_count=num_questions,
+            )
+            if len(merged) >= num_questions:
+                return GeneratedTestPayload(seed=seed, questions=merged[:num_questions])
+
+            missing = num_questions - len(merged)
+            topup = self._generate_test_mock(
+                subject=subject,
+                difficulty=difficulty,
+                language=language,
+                mode=mode,
+                num_questions=max(missing + 2, missing * 2),
+                seed=f"{seed}-deterministic-topup",
+                focus_topics=focus_topics,
+            )
+            merged = self._merge_unique_questions(
+                groups=[merged, topup.questions],
+                target_count=num_questions,
+            )
+            return GeneratedTestPayload(seed=seed, questions=merged[:num_questions])
+
+        if self._llm_is_configured(audience="student"):
             try:
-                return self._generate_test_deepseek(
+                return self._generate_test_llm(
                     subject=subject,
                     difficulty=difficulty,
                     language=language,
@@ -531,7 +1311,7 @@ class AIService:
                     focus_topics=focus_topics,
                 )
             except Exception as exc:  # noqa: BLE001
-                logger.warning("DeepSeek generation failed, fallback to validated library: %s", exc)
+                logger.warning("LLM generation failed, fallback to validated library: %s", exc)
 
         fallback_questions = self.generate_library_only_questions(
             subject=subject,
@@ -541,12 +1321,8 @@ class AIService:
             seed=f"{seed}-library-fallback",
             difficulty_order=[difficulty, DifficultyLevel.medium, DifficultyLevel.easy, DifficultyLevel.hard],
         )
-        if len(fallback_questions) >= num_questions:
-            return GeneratedTestPayload(seed=seed, questions=fallback_questions[:num_questions])
-
-        # Library-only fallback should still produce a non-empty test when templates exist.
         if fallback_questions:
-            return GeneratedTestPayload(seed=seed, questions=fallback_questions)
+            return ensure_exact_count(fallback_questions)
 
         # Final safety net for unknown subjects.
         return self._generate_test_mock(
@@ -559,7 +1335,7 @@ class AIService:
             focus_topics=focus_topics,
         )
 
-    def _generate_test_deepseek(
+    def _generate_test_llm(
         self,
         *,
         subject: Subject,
@@ -634,7 +1410,7 @@ Seed уникальности: {seed}
 {hard_free_rule}
 """.strip()
 
-        content = self._call_deepseek(prompt)
+        content = self._call_llm(prompt, audience="student")
         data = self._extract_json(content)
         raw_questions = data.get("questions", [])
         parsed_questions: list[GeneratedQuestionPayload] = []
@@ -684,7 +1460,7 @@ Seed уникальности: {seed}
 
         return GeneratedTestPayload(seed=seed, questions=sanitized_questions[:num_questions])
 
-    def _generate_recommendation_deepseek(
+    def _generate_recommendation_llm(
         self,
         *,
         subject: Subject,
@@ -708,33 +1484,116 @@ Seed уникальности: {seed}
 - Дай краткий совет и ровно 5 дополнительных заданий по слабым темам.
 """.strip()
 
-        content = self._call_deepseek(prompt)
+        content = self._call_llm(prompt, audience="student")
         data = self._extract_json(content)
         tasks = data.get("generated_tasks", [])[:5]
         if len(tasks) < 5:
             raise ValueError("Недостаточно сгенерированных заданий")
         return RecommendationPayload(advice_text=data.get("advice_text", ""), generated_tasks=tasks)
 
-    def _call_deepseek(self, prompt: str) -> str:
+    def _call_llm(
+        self,
+        prompt: str,
+        *,
+        audience: str,
+        max_tokens: int | None = None,
+        timeout_seconds: int = 35,
+        temperature: float = 0.7,
+    ) -> str:
+        provider_name = self._teacher_provider_name() if audience == "teacher" else self._student_provider_name()
+        effective_timeout = max(5, int(timeout_seconds))
+        if provider_name == "openai":
+            effective_timeout = max(effective_timeout, int(settings.openai_timeout_seconds))
         try:
             return llm_chat(
                 system_prompt="You are a strict JSON generator for exam platforms.",
                 user_prompt=prompt,
-                temperature=0.9,
-                timeout_seconds=30,
+                temperature=temperature,
+                timeout_seconds=effective_timeout,
+                provider_name=provider_name,
+                max_tokens=max_tokens,
+                audience=audience,
             )
         except LLMProviderError:
             raise
 
     @staticmethod
+    def _is_non_retryable_llm_error(exc: Exception) -> bool:
+        if isinstance(exc, LLMProviderError):
+            return not getattr(exc, "retryable", True)
+        return False
+
+    @staticmethod
+    def _format_teacher_llm_error(exc: Exception) -> str:
+        raw = str(exc).strip()
+        normalized = raw.lower()
+        if "model_not_found" in normalized or "must be verified to use the model" in normalized:
+            return (
+                "Модель OpenAI недоступна для вашего аккаунта. "
+                "Проверьте верификацию организации или укажите резервную модель "
+                "(например, OPENAI_MODEL=gpt-4.1-mini)."
+            )
+        if "api error 429" in normalized or "quota exceeded" in normalized or "resource_exhausted" in normalized:
+            return (
+                "Превышена квота OpenAI API. Подождите немного и повторите запрос, "
+                "либо увеличьте лимиты/план OpenAI."
+            )
+        if "insufficient_quota" in normalized or "credit balance is too low" in normalized:
+            return (
+                "Недостаточно квоты/баланса OpenAI аккаунта. "
+                "Пополните баланс или проверьте активный billing plan."
+            )
+        if "api key is invalid" in normalized or "invalid_api_key" in normalized or "authentication" in normalized:
+            return "Неверный ключ OpenAI API. Проверьте OPENAI_API_KEY_TEACHER."
+        return raw
+
+    @staticmethod
     def _extract_json(content: str) -> dict:
-        try:
-            return json.loads(content)
-        except json.JSONDecodeError:
-            match = re.search(r"\{[\s\S]*\}", content)
-            if not match:
-                raise
-            return json.loads(match.group(0))
+        raw = (content or "").strip()
+        if not raw:
+            raise ValueError("Пустой ответ модели (ожидался JSON).")
+
+        candidates: list[str] = [raw]
+        # 1) Remove wrapping fence when the whole string is fenced.
+        fenced_wrapped = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.IGNORECASE | re.DOTALL).strip()
+        if fenced_wrapped != raw:
+            candidates.append(fenced_wrapped)
+        # 2) Extract fenced block from mixed text.
+        fenced_match = re.search(r"```(?:json)?\s*([\s\S]*?)```", raw, flags=re.IGNORECASE)
+        if fenced_match:
+            fenced_inner = (fenced_match.group(1) or "").strip()
+            if fenced_inner:
+                candidates.append(fenced_inner)
+
+        # Try direct parse first (object or array root).
+        for candidate in candidates:
+            try:
+                parsed = json.loads(candidate)
+                if isinstance(parsed, dict):
+                    return parsed
+                if isinstance(parsed, list):
+                    return {"questions": parsed}
+            except json.JSONDecodeError:
+                pass
+
+        # Try extracting first object or array from free text.
+        for pattern in (r"\{[\s\S]*\}", r"\[[\s\S]*\]"):
+            for candidate in candidates:
+                match = re.search(pattern, candidate)
+                if not match:
+                    continue
+                fragment = match.group(0)
+                try:
+                    parsed = json.loads(fragment)
+                    if isinstance(parsed, dict):
+                        return parsed
+                    if isinstance(parsed, list):
+                        return {"questions": parsed}
+                except json.JSONDecodeError:
+                    continue
+
+        snippet = raw[:220].replace("\n", " ")
+        raise ValueError(f"Модель вернула не-JSON ответ: {snippet}")
 
     def _generate_test_mock(
         self,
@@ -1696,103 +2555,20 @@ Seed уникальности: {seed}
         language: PreferredLanguage,
         mode: TestMode,
     ) -> list[GeneratedQuestionPayload]:
-        templates = get_text_question_templates(
-            subject_name_ru=subject.name_ru,
-            language=language,
-            difficulty=difficulty,
-        )
-        if not templates:
-            templates = []
+        difficulty_order: list[DifficultyLevel] = []
+        for item in (difficulty, DifficultyLevel.medium, DifficultyLevel.easy, DifficultyLevel.hard):
+            if item not in difficulty_order:
+                difficulty_order.append(item)
 
-        rng = random.Random(f"library::{subject.name_ru}::{language.value}::{difficulty.value}")
-        target_count = self.LIBRARY_QUESTIONS_PER_COMBINATION
-        text_questions = self._generate_text_questions_from_bank(
+        # Build local library pool only; do not trigger external LLM here.
+        return self.generate_library_only_questions(
             subject=subject,
-            difficulty=difficulty,
-            language=language,
-            num_questions=min(target_count, len(templates)),
-            focus_topics=[],
-            templates=list(templates),
-            rng=rng,
-        )
-
-        candidates: list[GeneratedQuestionPayload] = []
-        for index, question in enumerate(text_questions[:target_count]):
-            adapted = self._adapt_library_question_to_mode(
-                question=question,
-                mode=mode,
-                language=language,
-            )
-            candidates.append(
-                self._attach_library_metadata(
-                    question=adapted,
-                    subject=subject,
-                    difficulty=difficulty,
-                    language=language,
-                    mode=mode,
-                    library_index=index,
-                )
-            )
-
-        candidates = self._sanitize_questions(
-            questions=candidates,
-            subject=subject,
-            difficulty=difficulty,
             language=language,
             mode=mode,
-            target_count=target_count,
-            focus_topics=[],
+            num_questions=self.LIBRARY_QUESTIONS_PER_COMBINATION,
+            seed=f"library::{subject.id}::{language.value}::{difficulty.value}::{mode.value}",
+            difficulty_order=difficulty_order,
         )
-
-        if len(candidates) < target_count:
-            needed = target_count - len(candidates)
-            extra_seed = f"library-ai::{subject.id}::{language.value}::{difficulty.value}::{mode.value}"
-            try:
-                if settings.ai_provider.lower() == "deepseek" and settings.deepseek_api_key:
-                    extra_payload = self._generate_test_deepseek(
-                        subject=subject,
-                        difficulty=difficulty,
-                        language=language,
-                        mode=mode,
-                        num_questions=max(needed * 3, needed + 8),
-                        seed=extra_seed,
-                        focus_topics=[],
-                    )
-                else:
-                    extra_payload = self._generate_test_mock(
-                        subject=subject,
-                        difficulty=difficulty,
-                        language=language,
-                        mode=mode,
-                        num_questions=max(needed * 3, needed + 8),
-                        seed=extra_seed,
-                        focus_topics=[],
-                    )
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("Failed to build AI-backed library questions: %s", exc)
-                extra_payload = GeneratedTestPayload(seed=extra_seed, questions=[])
-
-            start_index = len(candidates)
-            attached_extras: list[GeneratedQuestionPayload] = []
-            for idx, question in enumerate(extra_payload.questions):
-                attached_extras.append(
-                    self._attach_library_metadata(
-                        question=question,
-                        subject=subject,
-                        difficulty=difficulty,
-                        language=language,
-                        mode=mode,
-                        library_index=start_index + idx,
-                        template_content_key=self._library_content_key(question.prompt),
-                    )
-                )
-
-            candidates = self._merge_unique_questions(
-                groups=[candidates, attached_extras],
-                target_count=target_count,
-            )
-
-        return candidates[:target_count]
 
     def _adapt_library_question_to_mode(
         self,

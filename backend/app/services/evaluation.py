@@ -11,7 +11,7 @@ from typing import Any
 from app.core.config import settings
 from app.models import Question, QuestionType
 from app.schemas.tests import QuestionFeedback
-from app.services.llm import LLMProviderError, llm_chat
+from app.services.llm import LLMProviderError, is_llm_provider_configured, llm_chat
 
 logger = logging.getLogger(__name__)
 
@@ -51,13 +51,20 @@ class EvaluationSummary:
 def evaluate_answers(questions: list[Question], answers_by_question_id: dict[int, dict[str, Any]]) -> EvaluationSummary:
     feedback_items: list[QuestionFeedback] = []
     weak_topic_counter: Counter[str] = Counter()
+    semantic_budget_remaining = max(0, int(settings.semantic_grading_max_ai_calls_per_test))
 
     total_score = 0.0
     max_score = float(len(questions))
 
     for question in questions:
         student_answer = answers_by_question_id.get(question.id, {})
-        score, is_correct = _evaluate_single_question(question, student_answer)
+        score, is_correct, used_semantic_ai = _evaluate_single_question(
+            question,
+            student_answer,
+            semantic_budget_remaining=semantic_budget_remaining,
+        )
+        if used_semantic_ai and semantic_budget_remaining > 0:
+            semantic_budget_remaining -= 1
         total_score += score
 
         topic = str(question.explanation_json.get("topic", "General"))
@@ -96,14 +103,25 @@ def evaluate_answers(questions: list[Question], answers_by_question_id: dict[int
     )
 
 
-def _evaluate_single_question(question: Question, student_answer: dict[str, Any]) -> tuple[float, bool]:
+def _evaluate_single_question(
+    question: Question,
+    student_answer: dict[str, Any],
+    *,
+    semantic_budget_remaining: int,
+) -> tuple[float, bool, bool]:
     if question.type in {QuestionType.single_choice, QuestionType.multi_choice}:
-        return _evaluate_choice(question, student_answer)
+        score, is_correct = _evaluate_choice(question, student_answer)
+        return score, is_correct, False
     if question.type == QuestionType.matching:
-        return _evaluate_matching(question, student_answer)
+        score, is_correct = _evaluate_matching(question, student_answer)
+        return score, is_correct, False
     if question.type in {QuestionType.short_text, QuestionType.oral_answer}:
-        return _evaluate_fuzzy_text(question, student_answer)
-    return 0.0, False
+        return _evaluate_fuzzy_text(
+            question,
+            student_answer,
+            semantic_budget_remaining=semantic_budget_remaining,
+        )
+    return 0.0, False, False
 
 
 def _evaluate_choice(question: Question, student_answer: dict[str, Any]) -> tuple[float, bool]:
@@ -124,7 +142,12 @@ def _evaluate_matching(question: Question, student_answer: dict[str, Any]) -> tu
     return score, score == 1.0
 
 
-def _evaluate_fuzzy_text(question: Question, student_answer: dict[str, Any]) -> tuple[float, bool]:
+def _evaluate_fuzzy_text(
+    question: Question,
+    student_answer: dict[str, Any],
+    *,
+    semantic_budget_remaining: int,
+) -> tuple[float, bool, bool]:
     student_text = str(
         student_answer.get("text")
         or student_answer.get("spoken_answer_text")
@@ -144,7 +167,7 @@ def _evaluate_fuzzy_text(question: Question, student_answer: dict[str, Any]) -> 
     normalized_sample = _normalize(sample_answer)
 
     if not normalized_student:
-        return 0.0, False
+        return 0.0, False, False
 
     keyword_hits = sum(1 for keyword in keywords if keyword and keyword in normalized_student)
     keyword_score = (keyword_hits / len(keywords)) if keywords else 0.0
@@ -162,19 +185,19 @@ def _evaluate_fuzzy_text(question: Question, student_answer: dict[str, Any]) -> 
     inferred_numeric = _infer_expected_numeric_from_prompt(question.prompt)
 
     if exact_text_match:
-        return 1.0, True
+        return 1.0, True, False
     if inferred_numeric is not None and _answer_matches_number(student_text, inferred_numeric):
-        return 1.0, True
+        return 1.0, True, False
     if _numeric_equivalent(student_text, sample_answer):
-        return 0.95, True
+        return 0.95, True, False
     if discriminant_score >= 0.99:
-        return 1.0, True
+        return 1.0, True, False
     if discriminant_score >= 0.66:
-        return round(discriminant_score, 2), False
+        return round(discriminant_score, 2), False, False
     if formula_targets and _is_formula_answer_match(student_text, formula_targets):
-        return 0.98, True
+        return 0.98, True, False
     if formula_similarity >= 0.98:
-        return 0.95, True
+        return 0.95, True, False
 
     if keywords:
         heuristic_score = (
@@ -202,12 +225,15 @@ def _evaluate_fuzzy_text(question: Question, student_answer: dict[str, Any]) -> 
 
     heuristic_score = _clamp(heuristic_score)
     semantic_verdict = None
+    semantic_used = False
     if _should_use_semantic_ai(
         question=question,
         student_text=student_text,
         sample_answer=sample_answer,
         heuristic_score=heuristic_score,
+        semantic_budget_remaining=semantic_budget_remaining,
     ):
+        semantic_used = True
         semantic_verdict = _evaluate_with_semantic_ai(
             question=question,
             student_text=student_text,
@@ -226,7 +252,7 @@ def _evaluate_fuzzy_text(question: Question, student_answer: dict[str, Any]) -> 
         score = round(heuristic_score, 2)
         is_correct = score >= threshold
 
-    return score, is_correct
+    return score, is_correct, semantic_used and semantic_verdict is not None
 
 
 def _expected_hint(question: Question) -> dict[str, Any]:
@@ -508,12 +534,23 @@ def _should_use_semantic_ai(
     student_text: str,
     sample_answer: str,
     heuristic_score: float,
+    semantic_budget_remaining: int,
 ) -> bool:
-    if not settings.deepseek_api_key:
+    provider_name = (settings.student_ai_provider or settings.ai_provider or "openai").strip().lower() or "openai"
+    if semantic_budget_remaining <= 0:
+        return False
+    if not is_llm_provider_configured(provider_name, audience="student"):
         return False
     if not student_text.strip():
         return False
-    # For free-text answers, always prefer semantic grading by AI when available.
+    if len(_tokenize(student_text)) <= 2:
+        return False
+    has_reference = bool(_normalize(sample_answer))
+    # Use AI for ambiguous cases instead of every free-text answer.
+    if heuristic_score >= 0.90:
+        return False
+    if heuristic_score < 0.35:
+        return has_reference and len(student_text.strip()) >= 12
     return True
 
 
@@ -549,11 +586,14 @@ def _evaluate_with_semantic_ai(
 """.strip()
 
     try:
+        provider_name = (settings.student_ai_provider or settings.ai_provider or "openai").strip().lower() or "openai"
         content = llm_chat(
             system_prompt="You are an accurate educational evaluator. Return strict JSON only.",
             user_prompt=prompt,
             temperature=0.0,
             timeout_seconds=12,
+            provider_name=provider_name,
+            audience="student",
         )
         parsed = _extract_json_object(content)
         score = _clamp(float(parsed.get("score", 0.0)))

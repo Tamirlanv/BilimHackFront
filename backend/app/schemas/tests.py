@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
@@ -194,3 +194,7 @@ class GroupTestSummaryResponse(BaseModel):
     group_id: int
     group_name: str
     created_at: datetime
+    due_date: date | None = None
+    is_completed: bool = False
+    completed_percent: float | None = None
+    completed_test_id: int | None = None

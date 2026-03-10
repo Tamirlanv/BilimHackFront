@@ -22,6 +22,7 @@ class RegisterRequest(BaseModel):
     education_level: EducationLevel | None = EducationLevel.school
     direction: str | None = Field(default=None, min_length=2, max_length=255)
     group_id: int | None = None
+    admin_key: str | None = Field(default=None, min_length=1, max_length=255)
     email_verification_code: str | None = Field(default=None, min_length=6, max_length=6, pattern=r"^\d{6}$")
 
     @field_validator("username", mode="before")

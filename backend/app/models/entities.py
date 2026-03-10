@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import enum
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from sqlalchemy import (
     JSON,
     Boolean,
+    Date,
     DateTime,
     Enum,
     Float,
@@ -196,6 +197,7 @@ class TeacherAuthoredTest(Base):
     title: Mapped[str] = mapped_column(String(160), nullable=False)
     time_limit_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
     warning_limit: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

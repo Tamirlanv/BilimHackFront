@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from io import BytesIO
 import re
 from typing import Any
@@ -15,6 +15,7 @@ from app.core.deps import CurrentUser, DBSession, require_role
 from app.models import (
     Answer,
     DifficultyLevel,
+    Group,
     GroupMembership,
     PreferredLanguage,
     Question,
@@ -35,6 +36,7 @@ from app.schemas.tests import (
     GenerateExamTestRequest,
     GenerateMistakesTestRequest,
     GenerateTestRequest,
+    QuestionFeedback,
     QuestionResponse,
     RecommendationResponse,
     ResultResponse,
@@ -57,7 +59,34 @@ def _invalidate_student_dashboard_cache(student_id: int) -> None:
         f"student:{student_id}:history:v1",
         f"student:{student_id}:progress:v1",
         f"student:{student_id}:dashboard:v1",
+        f"student:{student_id}:group-tests:v2",
     )
+
+
+def _invalidate_teacher_custom_results_cache_for_submitted_test(*, db: DBSession, test: Test) -> None:
+    session = test.session
+    if not session or str(session.exam_kind or "").strip().lower() != "group_custom":
+        return
+
+    config = session.exam_config_json or {}
+    raw_custom_test_id = config.get("custom_test_id")
+    if isinstance(raw_custom_test_id, str) and raw_custom_test_id.isdigit():
+        custom_test_id = int(raw_custom_test_id)
+    elif isinstance(raw_custom_test_id, int):
+        custom_test_id = raw_custom_test_id
+    else:
+        return
+
+    if custom_test_id <= 0:
+        return
+
+    teacher_id = db.scalar(
+        select(TeacherAuthoredTest.teacher_id).where(TeacherAuthoredTest.id == custom_test_id)
+    )
+    if not teacher_id:
+        return
+
+    cache.delete_pattern(f"teacher:{int(teacher_id)}:custom-test:{custom_test_id}:results:*")
 
 
 @router.post("/generate", response_model=TestResponse)
@@ -83,6 +112,14 @@ def generate_test(
         language=payload.language,
         mode=payload.mode,
     )
+    used_library_content_keys = _collect_used_library_content_keys(
+        db=db,
+        student_id=current_user.id,
+        subject_id=payload.subject_id,
+        difficulty=payload.difficulty,
+        language=payload.language,
+        mode=payload.mode,
+    )
 
     generated = ai_service.generate_test(
         subject=subject,
@@ -93,6 +130,7 @@ def generate_test(
         user_id=current_user.id,
         focus_topics=focus_topics,
         used_library_question_ids=used_library_question_ids,
+        used_library_content_keys=used_library_content_keys,
     )
 
     test = Test(
@@ -136,28 +174,83 @@ def generate_test_from_custom_template(
     db: DBSession,
     current_user: User = Depends(require_role(UserRole.student)),
 ) -> TestResponse:
-    membership = db.scalar(
-        select(GroupMembership).where(GroupMembership.student_id == current_user.id)
-    )
-    if not membership:
+    memberships = db.scalars(
+        select(GroupMembership)
+        .where(GroupMembership.student_id == current_user.id)
+        .order_by(GroupMembership.group_id.asc())
+    ).all()
+    if not memberships:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Вы не состоите в группе. Доступ к групповым тестам закрыт.",
+        )
+    student_group_ids = sorted({int(item.group_id) for item in memberships if int(item.group_id) > 0})
+    if not student_group_ids:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Вы не состоите в группе. Доступ к групповым тестам закрыт.",
         )
 
-    custom_test = db.scalar(
+    custom_test = db.execute(
         select(TeacherAuthoredTest)
-        .options(selectinload(TeacherAuthoredTest.questions))
+        .options(
+            selectinload(TeacherAuthoredTest.questions),
+            selectinload(TeacherAuthoredTest.group_links),
+        )
         .join(TeacherAuthoredTestGroup, TeacherAuthoredTestGroup.test_id == TeacherAuthoredTest.id)
         .where(
             TeacherAuthoredTest.id == custom_test_id,
-            TeacherAuthoredTestGroup.group_id == membership.group_id,
+            TeacherAuthoredTestGroup.group_id.in_(student_group_ids),
         )
-    )
+    ).unique().scalar_one_or_none()
     if not custom_test:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Групповой тест не найден")
     if not custom_test.questions:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="В выбранном тесте нет вопросов")
+    if custom_test.due_date and custom_test.due_date < date.today():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Срок сдачи теста истёк.",
+        )
+    assigned_group_id = next(
+        (
+            int(link.group_id)
+            for link in sorted(custom_test.group_links, key=lambda item: item.group_id)
+            if int(link.group_id) in student_group_ids
+        ),
+        student_group_ids[0],
+    )
+
+    completed_group_tests = db.scalars(
+        select(Test)
+        .join(TestSession, TestSession.test_id == Test.id)
+        .options(joinedload(Test.session), joinedload(Test.result))
+        .where(
+            Test.student_id == current_user.id,
+            TestSession.exam_kind == "group_custom",
+            TestSession.submitted_at.is_not(None),
+        )
+        .order_by(Test.created_at.asc(), Test.id.asc())
+    ).all()
+    already_completed = False
+    for completed in completed_group_tests:
+        if not completed.session or not completed.result:
+            continue
+        config = completed.session.exam_config_json or {}
+        raw_custom_test_id = config.get("custom_test_id")
+        resolved_custom_test_id = 0
+        if isinstance(raw_custom_test_id, str) and raw_custom_test_id.isdigit():
+            resolved_custom_test_id = int(raw_custom_test_id)
+        elif isinstance(raw_custom_test_id, int):
+            resolved_custom_test_id = int(raw_custom_test_id)
+        if resolved_custom_test_id == custom_test.id:
+            already_completed = True
+            break
+    if already_completed:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Этот групповой тест уже пройден. Повторное прохождение недоступно.",
+        )
 
     profile = db.get(StudentProfile, current_user.id)
     language = profile.preferred_language if profile and profile.preferred_language else PreferredLanguage.ru
@@ -181,7 +274,7 @@ def generate_test_from_custom_template(
             exam_config_json={
                 "title": custom_test.title,
                 "custom_test_id": custom_test.id,
-                "group_id": membership.group_id,
+                "group_id": assigned_group_id,
             },
         )
     )
@@ -201,7 +294,7 @@ def generate_test_from_custom_template(
                 test_id=test.id,
                 type=normalized_type,
                 prompt=str(source.prompt or "").strip(),
-                options_json=(source.options_json if normalized_type == QuestionType.single_choice else None),
+                options_json=dict(source.options_json or {}) if source.options_json else None,
                 correct_answer_json=dict(source.correct_answer_json or {}),
                 explanation_json={
                     "topic": custom_test.title,
@@ -604,7 +697,7 @@ def generate_test_from_mistakes(
             test_id=test.id,
             type=normalized_type,
             prompt=prompt,
-            options_json=source_question.options_json if normalized_type != QuestionType.short_text else None,
+            options_json=dict(source_question.options_json or {}) if source_question.options_json else None,
             correct_answer_json=source_question.correct_answer_json,
             explanation_json={
                 **source_question.explanation_json,
@@ -623,7 +716,7 @@ def generate_test_from_mistakes(
 @router.get("/{test_id}", response_model=TestResponse)
 def get_test(test_id: int, db: DBSession, current_user: CurrentUser) -> TestResponse:
     test = _load_test(db, test_id)
-    _assert_access(test, current_user)
+    _assert_access(db, test, current_user)
     return _build_test_response(test)
 
 
@@ -636,7 +729,7 @@ def get_question_tts_audio(
     voice: str | None = None,
 ) -> StreamingResponse:
     test = _load_test(db, test_id)
-    _assert_access(test, current_user)
+    _assert_access(db, test, current_user)
 
     question = next((item for item in test.questions if item.id == question_id), None)
     if not question:
@@ -757,6 +850,7 @@ def submit_test(
 
     db.commit()
     _invalidate_student_dashboard_cache(current_user.id)
+    _invalidate_teacher_custom_results_cache_for_submitted_test(db=db, test=test)
 
     return SubmitTestResponse(
         test_id=test.id,
@@ -774,17 +868,12 @@ def submit_test(
 @router.get("/{test_id}/result", response_model=TestResultDetailsResponse)
 def get_test_result(test_id: int, db: DBSession, current_user: CurrentUser) -> TestResultDetailsResponse:
     test = _load_test(db, test_id)
-    _assert_access(test, current_user)
+    _assert_access(db, test, current_user)
 
     if not test.result:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Результат не найден")
 
-    answers_map = {}
-    for question in test.questions:
-        if question.answers:
-            answers_map[question.id] = question.answers[-1].student_answer_json
-
-    evaluation = evaluate_answers(test.questions, answers_map)
+    persisted_feedback, fallback_weak_topics = _build_feedback_from_persisted_answers(test)
     recommendation = test.recommendation
     session = test.session
     warning_events = _normalize_warning_events_json(session.warning_events_json if session else [])
@@ -793,9 +882,9 @@ def get_test_result(test_id: int, db: DBSession, current_user: CurrentUser) -> T
         submitted_at=test.result.created_at,
         result=_build_result_response(result=test.result, session=session),
         integrity_warnings=warning_events,
-        feedback=evaluation.feedback,
+        feedback=persisted_feedback,
         recommendation=RecommendationResponse(
-            weak_topics=list(recommendation.weak_topics_json if recommendation else evaluation.weak_topics),
+            weak_topics=list(recommendation.weak_topics_json if recommendation else fallback_weak_topics),
             advice_text=(recommendation.advice_text if recommendation else ""),
             generated_tasks=list(recommendation.generated_tasks_json if recommendation else []),
         ),
@@ -1419,6 +1508,38 @@ def _collect_used_library_question_ids(
     return used_ids
 
 
+def _collect_used_library_content_keys(
+    *,
+    db: DBSession,
+    student_id: int,
+    subject_id: int,
+    difficulty: DifficultyLevel,
+    language: PreferredLanguage,
+    mode: TestMode,
+) -> set[str]:
+    explanation_rows = db.scalars(
+        select(Question.explanation_json)
+        .join(Test, Question.test_id == Test.id)
+        .join(Result, Result.test_id == Test.id)
+        .where(
+            Test.student_id == student_id,
+            Test.subject_id == subject_id,
+            Test.difficulty == difficulty,
+            Test.language == language,
+            Test.mode == mode,
+        )
+    ).all()
+
+    used_keys: set[str] = set()
+    for explanation in explanation_rows:
+        payload = explanation or {}
+        for field in ("library_template_key", "library_base_key", "library_content_key"):
+            value = str(payload.get(field, "")).strip().lower()
+            if value:
+                used_keys.add(value)
+    return used_keys
+
+
 def _load_wrong_questions(db: DBSession, student_id: int, subject_id: int | None = None) -> list[tuple[Question, Test]]:
     query = (
         db.query(Question, Test)
@@ -1482,9 +1603,23 @@ def _load_test(db: DBSession, test_id: int) -> Test:
     return test
 
 
-def _assert_access(test: Test, user: User) -> None:
+def _assert_access(db: DBSession, test: Test, user: User) -> None:
     if user.role == UserRole.teacher:
-        return
+        is_teacher_of_student = db.scalar(
+            select(GroupMembership.id)
+            .join(GroupMembership.group)
+            .where(
+                GroupMembership.student_id == test.student_id,
+                Group.teacher_id == user.id,
+            )
+            .limit(1)
+        )
+        if is_teacher_of_student:
+            return
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Недостаточно прав для доступа к этому тесту",
+        )
     if test.student_id != user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Недостаточно прав для доступа к этому тесту")
 
@@ -1612,3 +1747,53 @@ def _build_result_response(result: Result, session: TestSession | None) -> Resul
         time_limit_seconds=(session.time_limit_seconds if session else None),
         warning_count=int(session.warning_count if session else 0),
     )
+
+
+def _build_feedback_from_persisted_answers(test: Test) -> tuple[list[QuestionFeedback], list[str]]:
+    feedback_items: list[QuestionFeedback] = []
+    weak_topic_counter: Counter[str] = Counter()
+
+    for question in sorted(test.questions, key=lambda item: item.id):
+        latest_answer = max(question.answers, key=lambda item: item.id) if question.answers else None
+        student_answer = dict(latest_answer.student_answer_json) if latest_answer else {}
+        score = float(latest_answer.score) if latest_answer else 0.0
+        is_correct = bool(latest_answer.is_correct) if latest_answer else False
+        topic = str(question.explanation_json.get("topic", "General"))
+        explanation_text = str(question.explanation_json.get("correct_explanation", ""))
+
+        if not is_correct:
+            weak_topic_counter[topic] += 1
+
+        feedback_items.append(
+            QuestionFeedback(
+                question_id=question.id,
+                prompt=question.prompt,
+                topic=topic,
+                student_answer=student_answer,
+                expected_hint=_build_expected_hint(question),
+                is_correct=is_correct,
+                score=round(score, 2),
+                explanation=explanation_text,
+            )
+        )
+
+    weak_topics = [topic for topic, _ in weak_topic_counter.most_common(3)]
+    if weak_topics:
+        defaults = ["Повторение теории", "Понимание терминов", "Применение на практике"]
+        for default_topic in defaults:
+            if len(weak_topics) >= 3:
+                break
+            if default_topic not in weak_topics:
+                weak_topics.append(default_topic)
+    return feedback_items, weak_topics
+
+
+def _build_expected_hint(question: Question) -> dict[str, Any]:
+    if question.type in {QuestionType.single_choice, QuestionType.multi_choice}:
+        return {"correct_option_ids": question.correct_answer_json.get("correct_option_ids", [])}
+    if question.type == QuestionType.matching:
+        return {"matches": question.correct_answer_json.get("matches", {})}
+    return {
+        "keywords": question.correct_answer_json.get("keywords", []),
+        "sample_answer": question.correct_answer_json.get("sample_answer", ""),
+    }
