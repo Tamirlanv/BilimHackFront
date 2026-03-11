@@ -50,6 +50,14 @@ body.auth-viewport-locked {
   overscroll-behavior-y: none;
 }
 
+html.mobile-nav-locked,
+body.mobile-nav-locked {
+  height: 100dvh;
+  overflow: hidden;
+  overscroll-behavior: none;
+  background: #ffffff;
+}
+
 @media (max-width: 960px) {
   html.auth-viewport-locked,
   body.auth-viewport-locked {

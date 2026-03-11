@@ -27,6 +27,7 @@ import { assetPaths } from "@/src/assets";
 import styles from "@/components/layout/DashboardLayout.module.css";
 
 const SIDEBAR_STORAGE_KEY = "oku_sidebar_collapsed";
+const MOBILE_NAV_LOCK_CLASS = "mobile-nav-locked";
 
 interface DashboardLayoutProps {
   children: ReactNode;
@@ -79,6 +80,27 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   useEffect(() => {
     setMobileOpen(false);
   }, [pathname]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (window.innerWidth > 1024) return;
+
+    const html = document.documentElement;
+    const body = document.body;
+
+    if (mobileOpen) {
+      html.classList.add(MOBILE_NAV_LOCK_CLASS);
+      body.classList.add(MOBILE_NAV_LOCK_CLASS);
+    } else {
+      html.classList.remove(MOBILE_NAV_LOCK_CLASS);
+      body.classList.remove(MOBILE_NAV_LOCK_CLASS);
+    }
+
+    return () => {
+      html.classList.remove(MOBILE_NAV_LOCK_CLASS);
+      body.classList.remove(MOBILE_NAV_LOCK_CLASS);
+    };
+  }, [mobileOpen]);
 
   const t = (ru: string, kz: string) => tr(uiLanguage, ru, kz);
 
