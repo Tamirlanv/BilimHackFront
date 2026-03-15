@@ -105,6 +105,7 @@ class TeacherCustomMaterialGenerateResponse(BaseModel):
     topic: str
     difficulty: DifficultyLevel
     questions_count: int
+    rejected_count: int = 0
     questions: list[TeacherCustomMaterialQuestion]
 
 

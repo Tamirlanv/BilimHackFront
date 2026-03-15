@@ -47,6 +47,7 @@ interface SubjectCatalogItem {
   aliases: string[];
   subject_id: number | null;
   available: boolean;
+  locked: boolean;
 }
 
 interface ExamCard {
@@ -104,7 +105,16 @@ const EXAM_CARDS: ExamCard[] = [
   },
 ];
 
-const SUBJECT_TEMPLATE: Array<Omit<SubjectCatalogItem, "subject_id" | "available">> = [
+const LOCKED_SUBJECTS_NORMALIZED = new Set([
+  normalizeSubjectName("Биология"),
+  normalizeSubjectName("Химия"),
+  normalizeSubjectName("Всемирная история"),
+  normalizeSubjectName("Информатика"),
+]);
+
+const LOCKED_EXAMS = new Set<ExamType>(["ent", "ielts"]);
+
+const SUBJECT_TEMPLATE: Array<Omit<SubjectCatalogItem, "subject_id" | "available" | "locked">> = [
   {
     key: "math",
     name_ru: "Математика",
@@ -394,6 +404,7 @@ export default function TestSetupPage() {
           ...item,
           subject_id: null,
           available: false,
+          locked: true,
         };
       }
 
@@ -405,6 +416,8 @@ export default function TestSetupPage() {
         ...item,
         subject_id: match?.id ?? null,
         available: Boolean(match),
+        locked: LOCKED_SUBJECTS_NORMALIZED.has(normalizeSubjectName(item.name_ru))
+          || LOCKED_SUBJECTS_NORMALIZED.has(normalizeSubjectName(item.name_kz)),
       };
     });
 
@@ -421,6 +434,8 @@ export default function TestSetupPage() {
         aliases: [],
         subject_id: subject.id,
         available: true,
+        locked: LOCKED_SUBJECTS_NORMALIZED.has(normalizeSubjectName(subject.name_ru))
+          || LOCKED_SUBJECTS_NORMALIZED.has(normalizeSubjectName(subject.name_kz)),
       }));
 
     return [...catalog, ...extras];
@@ -577,6 +592,7 @@ export default function TestSetupPage() {
             <div className={styles.subjectGrid}>
               {subjectCatalog.map((item) => {
                 const isActive = item.subject_id === subjectId && item.available;
+                const isDisabled = !item.available || item.locked;
                 const title = uiLanguage === "RU" ? item.name_ru : item.name_kz;
                 const description = uiLanguage === "RU" ? item.description_ru : item.description_kz;
 
@@ -584,9 +600,10 @@ export default function TestSetupPage() {
                   <button
                     key={item.key}
                     type="button"
-                    className={`${styles.subjectCard} ${isActive ? styles.subjectCardActive : ""} ${!item.available ? styles.subjectCardDisabled : ""}`}
+                    className={`${styles.subjectCard} ${isActive ? styles.subjectCardActive : ""} ${!item.available ? styles.subjectCardDisabled : ""} ${item.locked ? styles.subjectCardLocked : ""}`}
+                    disabled={isDisabled}
                     onClick={() => {
-                      if (!item.available || !item.subject_id) {
+                      if (isDisabled || !item.subject_id) {
                         setError(t("Этот предмет скоро станет доступен.", "Бұл пән жақында қолжетімді болады."));
                         return;
                       }
@@ -598,6 +615,12 @@ export default function TestSetupPage() {
                       <h3 className={styles.subjectTitle}>{title}</h3>
                       <p className={styles.subjectDescription}>{description}</p>
                     </div>
+                    {item.locked && (
+                      <span className={styles.comingSoonOverlay} aria-hidden="true">
+                        <b className={styles.comingSoonTitle}>{title}</b>
+                        <small className={styles.comingSoonText}>{t("скоро доступно", "жақында қолжетімді")}</small>
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -615,8 +638,15 @@ export default function TestSetupPage() {
                 <button
                   key={item.key}
                   type="button"
-                  className={styles.examCard}
-                  onClick={() => openExamSettings(item.key)}
+                  className={`${styles.examCard} ${LOCKED_EXAMS.has(item.key) ? styles.subjectCardLocked : ""}`}
+                  disabled={LOCKED_EXAMS.has(item.key)}
+                  onClick={() => {
+                    if (LOCKED_EXAMS.has(item.key)) {
+                      setError(t("Этот раздел скоро станет доступен.", "Бұл бөлім жақында қолжетімді болады."));
+                      return;
+                    }
+                    openExamSettings(item.key);
+                  }}
                 >
                   <img className={styles.examIcon} src={item.icon} alt={uiLanguage === "RU" ? item.title_ru : item.title_kz} />
                   <div className={styles.subjectBody}>
@@ -625,6 +655,12 @@ export default function TestSetupPage() {
                       {uiLanguage === "RU" ? item.description_ru : item.description_kz}
                     </p>
                   </div>
+                  {LOCKED_EXAMS.has(item.key) && (
+                    <span className={styles.comingSoonOverlay} aria-hidden="true">
+                      <b className={styles.comingSoonTitle}>{uiLanguage === "RU" ? item.title_ru : item.title_kz}</b>
+                      <small className={styles.comingSoonText}>{t("скоро доступно", "жақында қолжетімді")}</small>
+                    </span>
+                  )}
                 </button>
               ))}
             </div>

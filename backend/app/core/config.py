@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     debug: bool = False
     log_level: str = "INFO"
     api_prefix: str = "/api/v1"
-    enable_legacy_routes: bool = True
+    enable_legacy_routes: bool = False
 
     database_url: str = "postgresql+psycopg://oku:oku@localhost:5432/oku"
     db_pool_size: int = 20

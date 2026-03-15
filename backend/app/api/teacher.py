@@ -11,6 +11,7 @@ from sqlalchemy.orm import joinedload, selectinload
 from app.core.config import settings
 from app.core.deps import DBSession, require_role
 from app.models import (
+    DifficultyLevel,
     Group,
     GroupInvitation,
     GroupMembership,
@@ -22,6 +23,7 @@ from app.models import (
     TeacherAuthoredTest,
     Test,
     TestSession,
+    TestMode,
     User,
     UserSession,
     UserRole,
@@ -59,8 +61,9 @@ from app.services.progress import (
     build_student_history,
     build_student_progress,
 )
-from app.services.ai import ai_service
 from app.services.teacher_file_import import MAX_IMPORT_SIZE_BYTES, parse_teacher_test_import_file
+from app.services.teacher_material_service import MaterialQualityError, teacher_material_service
+from app.services.question_quality import validate_question_payload
 
 router = APIRouter(prefix="/teacher", tags=["teacher"])
 
@@ -456,6 +459,7 @@ def create_custom_test(
     db.add(custom_test)
     db.flush()
 
+    seen_question_hashes: set[str] = set()
     for idx, question in enumerate(payload.questions, start=1):
         prompt = question.prompt.strip()
         if not prompt:
@@ -474,13 +478,14 @@ def create_custom_test(
                     detail=f"У вопроса #{idx} выберите корректный правильный вариант.",
                 )
 
-            options_json = {
-                "options": [{"id": option_idx + 1, "text": option_text} for option_idx, option_text in enumerate(options)],
+            quality_payload = {
+                "type": "single_choice",
+                "prompt": prompt,
+                "options": options,
+                "correct_option_ids": [int(question.correct_option_index) + 1],
+                "topic_tags": [title],
+                "explanation": prompt,
             }
-            if question.image_data_url:
-                options_json["image_data_url"] = question.image_data_url
-            correct_answer_json = {"correct_option_ids": [int(question.correct_option_index) + 1]}
-            question_type = "single_choice"
         else:
             sample_answer = (question.sample_answer or "").strip()
             if not sample_answer:
@@ -489,18 +494,57 @@ def create_custom_test(
                     detail=f"Для вопроса #{idx} со свободным ответом укажите эталонный ответ.",
                 )
 
-            options_json = {"image_data_url": question.image_data_url} if question.image_data_url else None
-            correct_answer_json = {
+            quality_payload = {
+                "type": "short_text",
+                "prompt": prompt,
                 "sample_answer": sample_answer,
                 "keywords": _extract_keywords(sample_answer),
+                "topic_tags": [title],
+                "explanation": sample_answer,
             }
-            question_type = "short_text"
+
+        validation = validate_question_payload(
+            payload=quality_payload,
+            language=PreferredLanguage.ru,
+            mode=TestMode.text,
+            difficulty=DifficultyLevel.medium,
+        )
+        if not validation.is_valid:
+            issues = "; ".join(validation.issues)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Вопрос #{idx} не прошёл валидацию: {issues}",
+            )
+
+        normalized = validation.payload
+        content_hash = str(normalized.get("content_hash", "")).strip()
+        if content_hash and content_hash in seen_question_hashes:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Вопрос #{idx} дублирует другой вопрос в этом тесте.",
+            )
+        if content_hash:
+            seen_question_hashes.add(content_hash)
+
+        question_type = str(normalized.get("type", "single_choice")).strip()
+        if question_type not in {"single_choice", "short_text"}:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Вопрос #{idx} имеет неподдерживаемый тип: {question_type}.",
+            )
+
+        options_json = dict(normalized.get("options_json") or {}) if normalized.get("options_json") else None
+        if question.image_data_url:
+            if options_json is None:
+                options_json = {}
+            options_json["image_data_url"] = question.image_data_url
+        correct_answer_json = dict(normalized.get("correct_answer_json") or {})
 
         db.add(
             TeacherAuthoredQuestion(
                 test_id=custom_test.id,
                 order_index=idx,
-                prompt=prompt,
+                prompt=str(normalized.get("prompt", prompt)).strip(),
                 question_type=question_type,
                 options_json=options_json,
                 correct_answer_json=correct_answer_json,
@@ -522,6 +566,7 @@ def create_custom_test(
 
 
 @router.post("/custom-tests/generate-material", response_model=TeacherCustomMaterialGenerateResponse)
+@router.post("/material/generate", response_model=TeacherCustomMaterialGenerateResponse)
 def generate_custom_test_material(
     payload: TeacherCustomMaterialGenerateRequest,
     current_user: User = Depends(require_role(UserRole.teacher)),
@@ -532,53 +577,33 @@ def generate_custom_test_material(
 
     questions_count = max(1, int(payload.questions_count))
     try:
-        questions = ai_service.generate_teacher_custom_material(
+        validated = teacher_material_service.generate_and_validate(
             topic=topic,
             difficulty=payload.difficulty,
             language=payload.language,
             questions_count=questions_count,
             user_id=current_user.id,
         )
+    except MaterialQualityError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "MATERIAL_QUALITY_FAILED",
+                "message": str(exc),
+            },
+        ) from exc
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Не удалось сгенерировать материал: {exc}",
         ) from exc
 
-    if not questions:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="AI не вернул материал. Попробуйте изменить тему или повторить запрос.",
-        )
-
     return TeacherCustomMaterialGenerateResponse(
         topic=topic,
         difficulty=payload.difficulty,
-        questions_count=min(questions_count, len(questions)),
-        questions=[
-            TeacherCustomMaterialQuestion(
-                prompt=str(item.get("prompt", "")).strip(),
-                answer_type="free_text" if str(item.get("answer_type", "")).strip() == "free_text" else "choice",
-                options=[str(option).strip() for option in (item.get("options") or []) if str(option).strip()],
-                correct_option_index=(
-                    int(item["correct_option_index"])
-                    if isinstance(item.get("correct_option_index"), (int, float, str))
-                    and str(item.get("correct_option_index")).lstrip("-").isdigit()
-                    else None
-                ),
-                sample_answer=(
-                    None
-                    if item.get("sample_answer") is None
-                    else (str(item.get("sample_answer", "")).strip() or None)
-                ),
-                image_data_url=(
-                    None
-                    if item.get("image_data_url") is None
-                    else (str(item.get("image_data_url", "")).strip() or None)
-                ),
-            )
-            for item in questions
-        ],
+        questions_count=len(validated.questions),
+        rejected_count=int(validated.rejected_count),
+        questions=validated.questions,
     )
 
 

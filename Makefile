@@ -1,4 +1,4 @@
-.PHONY: setup backend frontend build-frontend start-backend start-frontend mobile-get mobile-analyze mobile-test mobile-ios-build migrate-backend worker openapi sdk docker-up docker-down docker-logs
+.PHONY: setup backend frontend build-frontend start-backend start-frontend mobile-get mobile-analyze mobile-test mobile-ios-build migrate-backend worker openapi sdk docker-up docker-down docker-logs import-catalog-csv import-catalog-local
 
 setup:
 	./scripts/setup_backend.sh
@@ -51,3 +51,9 @@ docker-down:
 
 docker-logs:
 	docker compose logs -f --tail=150
+
+import-catalog-csv:
+	. .venv/bin/activate && python3 scripts/import_catalog_csv.py --csv "$(CSV)"
+
+import-catalog-local:
+	. .venv/bin/activate && python3 scripts/import_catalog_csv.py --csv "backend/app/db/database_question.csv"

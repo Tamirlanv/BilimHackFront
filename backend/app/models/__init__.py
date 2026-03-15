@@ -1,5 +1,8 @@
 from app.models.entities import (
     Answer,
+    AttemptQuestionEvent,
+    CatalogQuestion,
+    CatalogQuestionStatus,
     DifficultyLevel,
     EmailVerificationCode,
     Group,
@@ -11,6 +14,7 @@ from app.models.entities import (
     QuestionType,
     Recommendation,
     Result,
+    StudentQuestionCoverage,
     StudentProfile,
     Subject,
     Test,
@@ -26,6 +30,9 @@ from app.models.entities import (
 
 __all__ = [
     "Answer",
+    "AttemptQuestionEvent",
+    "CatalogQuestion",
+    "CatalogQuestionStatus",
     "DifficultyLevel",
     "EmailVerificationCode",
     "Group",
@@ -37,6 +44,7 @@ __all__ = [
     "QuestionType",
     "Recommendation",
     "Result",
+    "StudentQuestionCoverage",
     "StudentProfile",
     "Subject",
     "Test",

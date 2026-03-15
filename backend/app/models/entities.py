@@ -6,11 +6,13 @@ from datetime import date, datetime, timezone
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
     Enum,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -55,6 +57,13 @@ class InvitationStatus(str, enum.Enum):
     pending = "pending"
     accepted = "accepted"
     declined = "declined"
+
+
+class CatalogQuestionStatus(str, enum.Enum):
+    draft = "draft"
+    validated = "validated"
+    published = "published"
+    archived = "archived"
 
 
 class User(Base):
@@ -261,6 +270,102 @@ class Subject(Base):
     tests: Mapped[list[Test]] = relationship(back_populates="subject")
 
 
+class CatalogQuestion(Base):
+    __tablename__ = "catalog_questions"
+    __table_args__ = (
+        UniqueConstraint(
+            "subject_id",
+            "language",
+            "mode",
+            "difficulty",
+            "content_hash",
+            name="uq_catalog_question_content",
+        ),
+        CheckConstraint(
+            "("
+            "(type = 'single_choice' AND correct_options_count = 1) OR "
+            "(type = 'multi_choice' AND correct_options_count >= 1) OR "
+            "(type NOT IN ('single_choice', 'multi_choice') AND correct_options_count = 0)"
+            ")",
+            name="ck_catalog_correct_options_count",
+        ),
+        Index(
+            "ix_catalog_questions_subject_language_mode_difficulty_status",
+            "subject_id",
+            "language",
+            "mode",
+            "difficulty",
+            "status",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id", ondelete="CASCADE"), index=True, nullable=False)
+    status: Mapped[CatalogQuestionStatus] = mapped_column(
+        Enum(CatalogQuestionStatus),
+        default=CatalogQuestionStatus.draft,
+        nullable=False,
+        index=True,
+    )
+    source: Mapped[str] = mapped_column(String(64), default="question_bank", nullable=False)
+    source_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    language: Mapped[PreferredLanguage] = mapped_column(Enum(PreferredLanguage), nullable=False, index=True)
+    mode: Mapped[TestMode] = mapped_column(Enum(TestMode), nullable=False, index=True)
+    difficulty: Mapped[DifficultyLevel] = mapped_column(Enum(DifficultyLevel), nullable=False, index=True)
+    type: Mapped[QuestionType] = mapped_column(Enum(QuestionType), nullable=False)
+    prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    options_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    correct_answer_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    explanation_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    topic_tags_json: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    metadata_json: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    correct_options_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+    validated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    subject: Mapped[Subject] = relationship()
+
+
+class StudentQuestionCoverage(Base):
+    __tablename__ = "student_question_coverage"
+    __table_args__ = (
+        UniqueConstraint("student_id", "catalog_question_id", name="uq_student_catalog_question"),
+        Index("ix_student_question_coverage_student_catalog", "student_id", "catalog_question_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    student_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    catalog_question_id: Mapped[int] = mapped_column(
+        ForeignKey("catalog_questions.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    seen_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    solved_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    correct_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    wrong_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_correct_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    student: Mapped[User] = relationship()
+    catalog_question: Mapped[CatalogQuestion] = relationship()
+
+
 class Test(Base):
     __tablename__ = "tests"
 
@@ -296,6 +401,7 @@ class TestSession(Base):
     elapsed_seconds: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     warning_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     warning_events_json: Mapped[list[dict]] = mapped_column(JSON, default=list, nullable=False)
+    pipeline_version: Mapped[str] = mapped_column(String(32), default="unified_v1", nullable=False)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -320,6 +426,9 @@ class Question(Base):
 
 class Answer(Base):
     __tablename__ = "answers"
+    __table_args__ = (
+        UniqueConstraint("question_id", name="uq_answer_question"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     question_id: Mapped[int] = mapped_column(ForeignKey("questions.id", ondelete="CASCADE"), index=True)
@@ -328,6 +437,39 @@ class Answer(Base):
     score: Mapped[float] = mapped_column(Float, default=0.0)
 
     question: Mapped[Question] = relationship(back_populates="answers")
+
+
+class AttemptQuestionEvent(Base):
+    __tablename__ = "attempt_question_events"
+    __table_args__ = (
+        Index("ix_attempt_question_events_test_created_at", "test_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    test_id: Mapped[int] = mapped_column(ForeignKey("tests.id", ondelete="CASCADE"), index=True, nullable=False)
+    question_id: Mapped[int | None] = mapped_column(
+        ForeignKey("questions.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
+    catalog_question_id: Mapped[int | None] = mapped_column(
+        ForeignKey("catalog_questions.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
+    student_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    event_type: Mapped[str] = mapped_column(String(32), default="answered", nullable=False)
+    student_answer_json: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    is_correct: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    warning_count_snapshot: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    test: Mapped[Test] = relationship()
+    question: Mapped[Question | None] = relationship()
+    catalog_question: Mapped[CatalogQuestion | None] = relationship()
+    student: Mapped[User] = relationship()
 
 
 class Result(Base):

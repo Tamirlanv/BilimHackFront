@@ -15,6 +15,7 @@ from sqlalchemy.orm import joinedload, selectinload
 from app.core.deps import CurrentUser, DBSession, require_role
 from app.models import (
     Answer,
+    CatalogQuestion,
     DifficultyLevel,
     Group,
     GroupMembership,
@@ -25,6 +26,7 @@ from app.models import (
     Result,
     Subject,
     Test,
+    StudentQuestionCoverage,
     TeacherAuthoredTest,
     TeacherAuthoredTestGroup,
     TestMode,
@@ -37,6 +39,7 @@ from app.schemas.tests import (
     GenerateExamTestRequest,
     GenerateMistakesTestRequest,
     GenerateTestRequest,
+    GeneratedQuestionPayload,
     QuestionFeedback,
     QuestionResponse,
     RecommendationResponse,
@@ -47,10 +50,15 @@ from app.schemas.tests import (
     TestResponse,
     TestResultDetailsResponse,
 )
+from app.schemas.test_pipeline import RuntimeAnswerRequest, RuntimeAnswerResponse, RuntimeStateAnswer, RuntimeStateResponse
 from app.services.cache import cache
-from app.services.ai import RecommendationPayload, ai_service
+from app.services.attempt_runtime import attempt_runtime_service
 from app.services.custom_tests import normalize_custom_test_time_limit_seconds
 from app.services.evaluation import evaluate_answers
+from app.services.question_catalog import question_catalog_service
+from app.services.recommendation_service import RecommendationFacts, recommendation_service
+from app.services.subject_selector import subject_selector_registry
+from app.services.test_assembly import test_assembly_service
 from app.services.tts import TTSProviderUnavailableError, TTSServiceError, tts_service
 
 router = APIRouter(prefix="/tests", tags=["tests"])
@@ -96,6 +104,7 @@ def _invalidate_teacher_custom_results_cache_for_submitted_test(*, db: DBSession
 
 
 @router.post("/generate", response_model=TestResponse)
+@router.post("/assemble", response_model=TestResponse)
 def generate_test(
     payload: GenerateTestRequest,
     db: DBSession,
@@ -105,73 +114,106 @@ def generate_test(
     if not subject:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Предмет не найден")
 
-    focus_topics = _collect_student_focus_topics(
-        db=db,
-        student_id=current_user.id,
-        subject_id=payload.subject_id,
-    )
-    used_library_question_ids = _collect_used_library_question_ids(
-        db=db,
-        student_id=current_user.id,
-        subject_id=payload.subject_id,
-        difficulty=payload.difficulty,
-        language=payload.language,
-        mode=payload.mode,
-    )
-    used_library_content_keys = _collect_used_library_content_keys(
-        db=db,
-        student_id=current_user.id,
-        subject_id=payload.subject_id,
-        difficulty=payload.difficulty,
-        language=payload.language,
-        mode=payload.mode,
-    )
+    raw_warning_limit = getattr(payload, "warning_limit", None)
+    if raw_warning_limit is None:
+        normalized_warning_limit = 10
+    else:
+        normalized_warning_limit = int(raw_warning_limit)
+        if normalized_warning_limit <= 0:
+            normalized_warning_limit = 10
 
-    generated = ai_service.generate_test(
+    test = test_assembly_service.assemble_from_catalog(
+        db=db,
+        student=current_user,
         subject=subject,
         difficulty=payload.difficulty,
         language=payload.language,
         mode=payload.mode,
         num_questions=payload.num_questions,
-        user_id=current_user.id,
-        focus_topics=focus_topics,
-        used_library_question_ids=used_library_question_ids,
-        used_library_content_keys=used_library_content_keys,
+        time_limit_minutes=payload.time_limit_minutes,
+        warning_limit=normalized_warning_limit,
     )
-
-    test = Test(
-        student_id=current_user.id,
-        subject_id=payload.subject_id,
-        difficulty=payload.difficulty,
-        language=payload.language,
-        mode=payload.mode,
-    )
-    db.add(test)
-    db.flush()
-    db.add(
-        TestSession(
-            test_id=test.id,
-            time_limit_seconds=(payload.time_limit_minutes * 60) if payload.time_limit_minutes else None,
-        )
-    )
-
-    for generated_question in generated.questions:
-        test.questions.append(
-            Question(
-                test_id=test.id,
-                type=generated_question.type,
-                prompt=generated_question.prompt,
-                options_json=generated_question.options_json,
-                correct_answer_json=generated_question.correct_answer_json,
-                explanation_json=generated_question.explanation_json,
-                tts_text=generated_question.tts_text,
-            )
-        )
-
-    db.commit()
-    db.refresh(test)
-
     return _build_test_response(test)
+
+
+@router.post("/{test_id}/answer", response_model=RuntimeAnswerResponse)
+def answer_test_question(
+    test_id: int,
+    payload: RuntimeAnswerRequest,
+    db: DBSession,
+    current_user: User = Depends(require_role(UserRole.student)),
+) -> RuntimeAnswerResponse:
+    outcome = attempt_runtime_service.answer_question(
+        db=db,
+        student=current_user,
+        test_id=test_id,
+        question_id=payload.question_id,
+        student_answer_json=payload.student_answer_json,
+        latency_ms=payload.latency_ms,
+    )
+    return RuntimeAnswerResponse(
+        question_id=outcome.question_id,
+        is_correct=outcome.is_correct,
+        score=outcome.score,
+        answered_count=outcome.answered_count,
+        total_questions=outcome.total_questions,
+        warning_count=outcome.warning_count,
+    )
+
+
+@router.get("/{test_id}/state", response_model=RuntimeStateResponse)
+def get_test_state(
+    test_id: int,
+    db: DBSession,
+    current_user: User = Depends(require_role(UserRole.student)),
+) -> RuntimeStateResponse:
+    state = attempt_runtime_service.get_state(db=db, student=current_user, test_id=test_id)
+    test = state.test
+    session = test.session
+    if session is None:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Сессия теста не найдена")
+
+    answers_by_question_id: dict[int, Answer] = {}
+    for question in test.questions:
+        if not question.answers:
+            continue
+        latest = sorted(question.answers, key=lambda item: item.id)[-1]
+        answers_by_question_id[int(question.id)] = latest
+
+    answers = [
+        RuntimeStateAnswer(
+            question_id=int(question.id),
+            answered=int(question.id) in answers_by_question_id,
+            score=(
+                float(answers_by_question_id[int(question.id)].score)
+                if int(question.id) in answers_by_question_id
+                else None
+            ),
+            is_correct=(
+                bool(answers_by_question_id[int(question.id)].is_correct)
+                if int(question.id) in answers_by_question_id
+                else None
+            ),
+        )
+        for question in sorted(test.questions, key=lambda item: item.id)
+    ]
+
+    answered_count = sum(1 for item in answers if item.answered)
+    return RuntimeStateResponse(
+        test_id=test.id,
+        submitted=state.submitted,
+        created_at=test.created_at,
+        started_at=session.started_at,
+        submitted_at=session.submitted_at,
+        elapsed_seconds=state.elapsed_seconds,
+        time_limit_seconds=session.time_limit_seconds,
+        warning_limit=session.warning_limit,
+        warning_count=int(session.warning_count or 0),
+        warning_events=state.warning_events,
+        answered_count=answered_count,
+        total_questions=len(test.questions),
+        answers=answers,
+    )
 
 
 @router.post("/generate-from-custom/{custom_test_id}", response_model=TestResponse)
@@ -276,6 +318,7 @@ def generate_test_from_custom_template(
             test_id=test.id,
             time_limit_seconds=max(60, normalize_custom_test_time_limit_seconds(custom_test.time_limit_seconds)),
             warning_limit=max(0, int(custom_test.warning_limit)),
+            pipeline_version="unified_v1",
             exam_kind="group_custom",
             exam_config_json={
                 "title": custom_test.title,
@@ -417,22 +460,24 @@ def _generate_ent_exam_test(*, db: DBSession, current_user: User, payload: Gener
         },
     ]
 
-    used_library_ids: set[str] = set()
-    used_library_template_keys: set[str] = set()
+    used_catalog_question_ids: set[int] = set()
+    used_catalog_content_hashes: set[str] = set()
     used_prompt_keys: set[str] = set()
     generated_questions: list[Any] = []
     global_index = 0
 
     for section_index, section in enumerate(sections, start=1):
         section_questions = _collect_exam_section_questions(
+            db=db,
+            student_id=current_user.id,
             subject=section["subject"],
             language=payload.language,
             mode=section["mode"],
             count=section["count"],
             base_seed=f"ent::{current_user.id}::{section['subject'].id}::{section['code']}",
             difficulty_order=section["difficulty_order"],
-            used_library_ids=used_library_ids,
-            used_library_template_keys=used_library_template_keys,
+            used_catalog_question_ids=used_catalog_question_ids,
+            used_catalog_content_hashes=used_catalog_content_hashes,
             used_prompt_keys=used_prompt_keys,
         )
 
@@ -464,6 +509,7 @@ def _generate_ent_exam_test(*, db: DBSession, current_user: User, payload: Gener
             test_id=test.id,
             time_limit_seconds=240 * 60,
             warning_limit=1,
+            pipeline_version="unified_v1",
             exam_kind="ent",
             exam_config_json={
                 "title": "ЕНТ",
@@ -552,22 +598,24 @@ def _generate_ielts_exam_test(*, db: DBSession, current_user: User, payload: Gen
         },
     ]
 
-    used_library_ids: set[str] = set()
-    used_library_template_keys: set[str] = set()
+    used_catalog_question_ids: set[int] = set()
+    used_catalog_content_hashes: set[str] = set()
     used_prompt_keys: set[str] = set()
     generated_questions: list[Any] = []
     global_index = 0
 
     for section_index, section in enumerate(sections, start=1):
         section_questions = _collect_exam_section_questions(
+            db=db,
+            student_id=current_user.id,
             subject=english_subject,
             language=payload.language,
             mode=section["mode"],
             count=section["count"],
             base_seed=f"ielts::{current_user.id}::{section['code']}",
             difficulty_order=section["difficulty_order"],
-            used_library_ids=used_library_ids,
-            used_library_template_keys=used_library_template_keys,
+            used_catalog_question_ids=used_catalog_question_ids,
+            used_catalog_content_hashes=used_catalog_content_hashes,
             used_prompt_keys=used_prompt_keys,
         )
 
@@ -606,6 +654,7 @@ def _generate_ielts_exam_test(*, db: DBSession, current_user: User, payload: Gen
             test_id=test.id,
             time_limit_seconds=total_minutes * 60,
             warning_limit=1,
+            pipeline_version="unified_v1",
             exam_kind="ielts",
             exam_config_json={
                 "title": "IELTS",
@@ -685,7 +734,7 @@ def generate_test_from_mistakes(
     )
     db.add(test)
     db.flush()
-    db.add(TestSession(test_id=test.id, time_limit_seconds=None))
+    db.add(TestSession(test_id=test.id, time_limit_seconds=None, pipeline_version="unified_v1"))
 
     for source_question, source_test in selected_pairs:
         normalized_type = source_question.type
@@ -773,112 +822,45 @@ def submit_test(
     if test.student_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Нельзя отправить тест другого студента")
 
-    if test.result:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Тест уже отправлен")
-
-    answers_by_question_id = {item.question_id: item.student_answer_json for item in payload.answers}
-    evaluation = evaluate_answers(test.questions, answers_by_question_id)
-
-    now = datetime.now(timezone.utc)
-    telemetry = payload.telemetry
-    if telemetry and telemetry.elapsed_seconds is not None:
-        elapsed_seconds = int(max(0, telemetry.elapsed_seconds))
-    else:
-        elapsed_seconds = int(max(0, (now - test.created_at).total_seconds()))
-
-    session = test.session or TestSession(test_id=test.id, started_at=test.created_at)
-    if not test.session:
-        db.add(session)
-
-    normalized_warnings = _normalize_warning_events(list(telemetry.warnings if telemetry else []))
-    if session.time_limit_seconds is not None and elapsed_seconds > session.time_limit_seconds:
-        normalized_warnings.append(
-            {
-                "type": "time_limit_exceeded",
-                "at_seconds": elapsed_seconds,
-                "question_id": None,
-                "details": {
-                    "limit_seconds": int(session.time_limit_seconds),
-                    "elapsed_seconds": elapsed_seconds,
-                },
-            }
-        )
-    merged_warning_events = _merge_warning_events(session.warning_events_json or [], normalized_warnings)
-    session.warning_events_json = merged_warning_events
-    session.warning_count = len(merged_warning_events)
-    session.elapsed_seconds = max(int(session.elapsed_seconds or 0), elapsed_seconds)
-    session.submitted_at = now
-
-    feedback_map = {item.question_id: item for item in evaluation.feedback}
-    for question in test.questions:
-        student_answer = answers_by_question_id.get(question.id, {})
-        feedback = feedback_map[question.id]
-        db.add(
-            Answer(
-                question_id=question.id,
-                student_answer_json=student_answer,
-                is_correct=feedback.is_correct,
-                score=feedback.score,
-            )
-        )
-
-    result_total_score = float(evaluation.total_score)
-    result_max_score = float(evaluation.max_score)
-    if session.exam_kind == "ent":
-        result_max_score = 140.0
-        if evaluation.max_score > 0:
-            result_total_score = round((evaluation.total_score / evaluation.max_score) * result_max_score, 2)
-        else:
-            result_total_score = 0.0
-
-    percent = round((result_total_score / result_max_score) * 100, 2) if result_max_score else 0.0
-    result = Result(
-        test_id=test.id,
-        total_score=result_total_score,
-        max_score=result_max_score,
-        percent=percent,
+    submit_outcome = attempt_runtime_service.submit_test(
+        db=db,
+        student=current_user,
+        test_id=test_id,
+        answers=[
+            {"question_id": item.question_id, "student_answer_json": item.student_answer_json}
+            for item in payload.answers
+        ],
+        telemetry=payload.telemetry,
     )
-    db.add(result)
+    runtime_test = submit_outcome.test
+    runtime_session = runtime_test.session
+    runtime_result = runtime_test.result
+    runtime_recommendation = runtime_test.recommendation
 
-    recommendation_payloads, recommendation_weak_topics = _build_bilingual_recommendation(
-        test=test,
-        percent=percent,
-        warning_count=session.warning_count,
-        weak_topics=evaluation.weak_topics,
-    )
-    recommendation_payload = recommendation_payloads[test.language]
-    recommendation_payload_ru = recommendation_payloads[PreferredLanguage.ru]
-    recommendation_payload_kz = recommendation_payloads[PreferredLanguage.kz]
-    recommendation = Recommendation(
-        test_id=test.id,
-        weak_topics_json=recommendation_weak_topics,
-        advice_text=recommendation_payload.advice_text,
-        advice_text_ru=recommendation_payload_ru.advice_text,
-        advice_text_kz=recommendation_payload_kz.advice_text,
-        generated_tasks_json=recommendation_payload.generated_tasks,
-        generated_tasks_ru_json=recommendation_payload_ru.generated_tasks,
-        generated_tasks_kz_json=recommendation_payload_kz.generated_tasks,
-    )
-    db.add(recommendation)
+    if runtime_session is None or runtime_result is None:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Не удалось завершить тест.")
 
-    db.commit()
     _invalidate_student_dashboard_cache(current_user.id)
-    _invalidate_teacher_custom_results_cache_for_submitted_test(db=db, test=test)
+    _invalidate_teacher_custom_results_cache_for_submitted_test(db=db, test=runtime_test)
+
+    recommendation_payload = _build_recommendation_response_payload(
+        recommendation=runtime_recommendation,
+        fallback_weak_topics=list(submit_outcome.evaluation.weak_topics),
+    )
 
     return SubmitTestResponse(
-        test_id=test.id,
-        result=_build_result_response(result=result, session=session),
-        integrity_warnings=[TestWarningSignal.model_validate(item) for item in merged_warning_events],
-        feedback=evaluation.feedback,
-        recommendation=RecommendationResponse(
-            weak_topics=recommendation_weak_topics,
-            advice_text=recommendation_payload.advice_text,
-            generated_tasks=recommendation_payload.generated_tasks,
-            advice_text_ru=recommendation_payload_ru.advice_text,
-            advice_text_kz=recommendation_payload_kz.advice_text,
-            generated_tasks_ru=recommendation_payload_ru.generated_tasks,
-            generated_tasks_kz=recommendation_payload_kz.generated_tasks,
+        test_id=runtime_test.id,
+        result=ResultResponse(
+            total_score=float(runtime_result.total_score),
+            max_score=float(runtime_result.max_score),
+            percent=float(runtime_result.percent),
+            elapsed_seconds=int(runtime_session.elapsed_seconds or 0),
+            time_limit_seconds=runtime_session.time_limit_seconds,
+            warning_count=int(runtime_session.warning_count or 0),
         ),
+        integrity_warnings=[TestWarningSignal.model_validate(item) for item in submit_outcome.warning_events],
+        feedback=submit_outcome.evaluation.feedback,
+        recommendation=RecommendationResponse(**recommendation_payload),
     )
 
 
@@ -926,11 +908,13 @@ def regenerate_recommendations(
     current_weak_topics = list(test.recommendation.weak_topics_json)
     warning_count = int(test.session.warning_count if test.session else 0)
     percent = float(test.result.percent if test.result else 0.0)
-    recommendation_payloads, weak_topics = _build_bilingual_recommendation(
-        test=test,
-        percent=percent,
-        warning_count=warning_count,
-        weak_topics=current_weak_topics,
+    recommendation_payloads, weak_topics = recommendation_service.build_bilingual(
+        subject=test.subject,
+        facts=RecommendationFacts(
+            percent=percent,
+            warning_count=warning_count,
+            weak_topics=current_weak_topics,
+        ),
     )
     generated = recommendation_payloads[test.language]
     generated_ru = recommendation_payloads[PreferredLanguage.ru]
@@ -1018,21 +1002,26 @@ def _ensure_bilingual_recommendation(*, db: DBSession, test: Test) -> None:
     if not test.result:
         return
 
-    has_ru = bool(str(recommendation.advice_text_ru or "").strip()) and isinstance(recommendation.generated_tasks_ru_json, list)
-    has_kz = bool(str(recommendation.advice_text_kz or "").strip()) and isinstance(recommendation.generated_tasks_kz_json, list)
-    has_distinct_locales = _recommendation_locales_look_distinct(recommendation)
-    if has_ru and has_kz and has_distinct_locales:
+    has_ru = bool(str(recommendation.advice_text_ru or "").strip()) and isinstance(
+        recommendation.generated_tasks_ru_json, list
+    )
+    has_kz = bool(str(recommendation.advice_text_kz or "").strip()) and isinstance(
+        recommendation.generated_tasks_kz_json, list
+    )
+    if has_ru and has_kz:
         return
 
     warning_count = int(test.session.warning_count if test.session else 0)
     percent = float(test.result.percent)
     weak_topics = list(recommendation.weak_topics_json or [])
     try:
-        payloads, _ = _build_bilingual_recommendation(
-            test=test,
-            percent=percent,
-            warning_count=warning_count,
-            weak_topics=weak_topics,
+        payloads, _ = recommendation_service.build_bilingual(
+            subject=test.subject,
+            facts=RecommendationFacts(
+                percent=percent,
+                warning_count=warning_count,
+                weak_topics=weak_topics,
+            ),
         )
         payload_ru = payloads[PreferredLanguage.ru]
         payload_kz = payloads[PreferredLanguage.kz]
@@ -1052,301 +1041,6 @@ def _ensure_bilingual_recommendation(*, db: DBSession, test: Test) -> None:
         # Keep backward compatibility: if bilingual build fails, return legacy recommendation as-is.
         logger.warning("Failed to refresh bilingual recommendation for test_id=%s: %s", test.id, exc)
         db.rollback()
-
-
-def _build_bilingual_recommendation(
-    *,
-    test: Test,
-    percent: float,
-    warning_count: int,
-    weak_topics: list[str],
-) -> tuple[dict[PreferredLanguage, RecommendationPayload], list[str]]:
-    primary_language = test.language
-    secondary_language = PreferredLanguage.kz if primary_language == PreferredLanguage.ru else PreferredLanguage.ru
-
-    primary_payload, primary_topics = _build_personalized_recommendation(
-        test=test,
-        percent=percent,
-        warning_count=warning_count,
-        weak_topics=weak_topics,
-        target_language=primary_language,
-    )
-    try:
-        secondary_payload, _ = _build_personalized_recommendation(
-            test=test,
-            percent=percent,
-            warning_count=warning_count,
-            weak_topics=primary_topics,
-            target_language=secondary_language,
-        )
-    except Exception:  # noqa: BLE001
-        secondary_payload = ai_service.generate_recommendation(
-            subject=test.subject,
-            language=secondary_language,
-            weak_topics=primary_topics or [str(topic).strip() for topic in weak_topics if str(topic).strip()],
-        )
-
-    if _recommendation_payloads_look_identical(primary_payload, secondary_payload):
-        secondary_payload = ai_service._generate_recommendation_mock(  # type: ignore[attr-defined]
-            subject=test.subject,
-            language=secondary_language,
-            weak_topics=primary_topics or [str(topic).strip() for topic in weak_topics if str(topic).strip()],
-        )
-
-    payloads: dict[PreferredLanguage, RecommendationPayload] = {
-        primary_language: primary_payload,
-        secondary_language: secondary_payload,
-    }
-    return payloads, primary_topics
-
-
-def _recommendation_payloads_look_identical(first: RecommendationPayload, second: RecommendationPayload) -> bool:
-    if (first.advice_text or "").strip() != (second.advice_text or "").strip():
-        return False
-    first_tasks = first.generated_tasks if isinstance(first.generated_tasks, list) else []
-    second_tasks = second.generated_tasks if isinstance(second.generated_tasks, list) else []
-    if len(first_tasks) != len(second_tasks):
-        return False
-    for left, right in zip(first_tasks, second_tasks):
-        if not isinstance(left, dict) or not isinstance(right, dict):
-            return False
-        left_topic = str(left.get("topic", "")).strip()
-        right_topic = str(right.get("topic", "")).strip()
-        left_task = str(left.get("task", "")).strip()
-        right_task = str(right.get("task", "")).strip()
-        left_difficulty = str(left.get("difficulty", "")).strip()
-        right_difficulty = str(right.get("difficulty", "")).strip()
-        if (left_topic, left_task, left_difficulty) != (right_topic, right_task, right_difficulty):
-            return False
-    return True
-
-
-def _recommendation_locales_look_distinct(recommendation: Recommendation) -> bool:
-    advice_ru = str(recommendation.advice_text_ru or "").strip()
-    advice_kz = str(recommendation.advice_text_kz or "").strip()
-    tasks_ru = recommendation.generated_tasks_ru_json if isinstance(recommendation.generated_tasks_ru_json, list) else []
-    tasks_kz = recommendation.generated_tasks_kz_json if isinstance(recommendation.generated_tasks_kz_json, list) else []
-    if not advice_ru or not advice_kz:
-        return False
-    if advice_ru != advice_kz:
-        return True
-    if tasks_ru != tasks_kz:
-        return True
-    return False
-
-
-def _build_personalized_recommendation(
-    *,
-    test: Test,
-    percent: float,
-    warning_count: int,
-    weak_topics: list[str],
-    target_language: PreferredLanguage | None = None,
-) -> tuple[RecommendationPayload, list[str]]:
-    recommendation_language = target_language or test.language
-    clean_topics = [str(topic).strip() for topic in weak_topics if str(topic).strip()]
-    exam_kind = str(test.session.exam_kind or "").strip().lower() if test.session else ""
-
-    if exam_kind in {"ent", "ielts"}:
-        return _build_exam_recommendation(
-            exam_kind=exam_kind,
-            language=recommendation_language,
-            percent=percent,
-            warning_count=warning_count,
-            weak_topics=clean_topics,
-        )
-
-    subject_name = test.subject.name_ru if recommendation_language == PreferredLanguage.ru else test.subject.name_kz
-
-    if percent >= 99.9 and warning_count == 0:
-        if recommendation_language == PreferredLanguage.kz:
-            advice = (
-                "Керемет нәтиже! Тестті өте сенімді әрі адал орындадыңыз. "
-                "Келесі қадам ретінде деңгейді көтеріп немесе сұрақ санын көбейтіп көріңіз."
-            )
-            tasks = [
-                {"topic": "Күрделілік", "task": f"«{subject_name}» пәнінен келесі тестті hard деңгейінде өтіңіз.", "difficulty": "hard"},
-                {"topic": "Көлем", "task": "Келесі тестте 20-25 сұрақ таңдап, нәтиженің тұрақтылығын тексеріңіз.", "difficulty": "medium"},
-                {"topic": "Жылдамдық", "task": "Жауап сапасын сақтай отырып, әр сұраққа кететін уақытты азайтыңыз.", "difficulty": "medium"},
-                {"topic": "Тереңдету", "task": "Қиынырақ тақырыптар бойынша қысқа ашық сұрақтарға жауап беріңіз.", "difficulty": "hard"},
-                {"topic": "Тұрақтылық", "task": "Жоғары нәтижені қатарынан 2-3 тестте қайталап көріңіз.", "difficulty": "adaptive"},
-            ]
-        else:
-            advice = (
-                "Отличный результат! Вы проходите тест уверенно и честно. "
-                "Попробуйте повысить сложность или увеличить количество вопросов."
-            )
-            tasks = [
-                {"topic": "Усложнение", "task": f"Пройдите следующий тест по предмету «{subject_name}» на сложном уровне.", "difficulty": "hard"},
-                {"topic": "Объём", "task": "Выберите 20-25 вопросов в следующей попытке и проверьте стабильность результата.", "difficulty": "medium"},
-                {"topic": "Скорость", "task": "Сократите среднее время на один вопрос без потери точности.", "difficulty": "medium"},
-                {"topic": "Глубина", "task": "Добавьте открытые вопросы и объясняйте ход решения полным ответом.", "difficulty": "hard"},
-                {"topic": "Стабильность", "task": "Повторите такой же результат минимум в 2-3 тестах подряд.", "difficulty": "adaptive"},
-            ]
-        return RecommendationPayload(advice_text=advice, generated_tasks=tasks), []
-
-    if percent >= 90 and warning_count > 0:
-        if recommendation_language == PreferredLanguage.kz:
-            advice = (
-                f"Нәтиже жоғары ({round(percent, 1)}%), бірақ тестте {warning_count} ескерту тіркелді. "
-                "Оқу тиімді болуы үшін келесі тестті адал форматта, сыртқы көмексіз өтіп көріңіз."
-            )
-            tasks = [
-                {"topic": "Адал режим", "task": "Келесі тест кезінде басқа қойындыларға ауыспай орындаңыз.", "difficulty": "adaptive"},
-                {"topic": "Өзіндік жауап", "task": "Мәтіндік сұрақтарға дайын мәтін қоймай, өз сөзіңізбен жауап беріңіз.", "difficulty": "adaptive"},
-                {"topic": "Бақылау", "task": "Тест аяқталған соң 2 сұрақ бойынша шешім логикасын қысқаша жазып шығыңыз.", "difficulty": "medium"},
-                {"topic": "Қайталау", "task": "Сіз қате жауап берген тақырыптарды жеке-жеке қайталаңыз.", "difficulty": "medium"},
-                {"topic": "Тұрақтылық", "task": "Ескертусіз жоғары нәтижені 2 рет қатарынан көрсетуге тырысыңыз.", "difficulty": "adaptive"},
-            ]
-        else:
-            advice = (
-                f"Результат высокий ({round(percent, 1)}%), но зафиксированы предупреждения ({warning_count}). "
-                "Для эффективного обучения попробуйте пройти следующий тест честно, без переключений вкладок и вставки готовых ответов."
-            )
-            tasks = [
-                {"topic": "Честный режим", "task": "Пройдите следующий тест без перехода на другие вкладки.", "difficulty": "adaptive"},
-                {"topic": "Самостоятельный ответ", "task": "На открытые вопросы отвечайте своими словами, без вставки текста.", "difficulty": "adaptive"},
-                {"topic": "Контроль понимания", "task": "После теста письменно объясните ход решения двух вопросов.", "difficulty": "medium"},
-                {"topic": "Повторение ошибок", "task": "Отработайте темы вопросов, где были ошибки по баллам.", "difficulty": "medium"},
-                {"topic": "Стабильность", "task": "Покажите высокий результат без предупреждений в двух попытках подряд.", "difficulty": "adaptive"},
-            ]
-        return RecommendationPayload(advice_text=advice, generated_tasks=tasks), clean_topics
-
-    generated = ai_service.generate_recommendation(
-        subject=test.subject,
-        language=recommendation_language,
-        weak_topics=clean_topics,
-    )
-    return generated, clean_topics
-
-
-def _default_exam_topics(exam_kind: str, language: PreferredLanguage) -> list[str]:
-    if exam_kind == "ent":
-        if language == PreferredLanguage.kz:
-            return ["Қазақстан тарихы", "Математикалық сауаттылық", "Оқу сауаттылығы"]
-        return ["История Казахстана", "Математическая грамотность", "Грамотность чтения"]
-
-    if language == PreferredLanguage.kz:
-        return ["Listening", "Reading", "Writing", "Speaking"]
-    return ["Listening", "Reading", "Writing", "Speaking"]
-
-
-def _build_exam_recommendation(
-    *,
-    exam_kind: str,
-    language: PreferredLanguage,
-    percent: float,
-    warning_count: int,
-    weak_topics: list[str],
-) -> tuple[RecommendationPayload, list[str]]:
-    exam_label = "ЕНТ" if exam_kind == "ent" else "IELTS"
-    base_topics = _default_exam_topics(exam_kind, language)
-    normalized_topics: list[str] = []
-    seen_topics: set[str] = set()
-    for topic in [*weak_topics, *base_topics]:
-        value = str(topic).strip()
-        key = value.lower()
-        if not value or key in seen_topics:
-            continue
-        seen_topics.add(key)
-        normalized_topics.append(value)
-        if len(normalized_topics) >= 5:
-            break
-    if not normalized_topics:
-        normalized_topics = base_topics[:3]
-
-    focus_topics = normalized_topics[:3]
-
-    if language == PreferredLanguage.kz:
-        if percent >= 99.9 and warning_count == 0:
-            advice = (
-                f"Керемет! Сіз {exam_label} форматындағы сынақ тестін өте жоғары және адал нәтижемен аяқтадыңыз. "
-                "Келесі қадам ретінде уақытты азайтып, тұрақтылықты сақтап көріңіз."
-            )
-        elif warning_count > 0 and percent >= 90:
-            advice = (
-                f"Нәтиже жоғары ({round(percent, 1)}%), бірақ {exam_label} тестінде {warning_count} ескерту тіркелді. "
-                "Нәтижеңізді шынайы бағалау үшін келесі талпынысты сыртқы көмексіз, адал форматта өтіңіз."
-            )
-        elif percent >= 85:
-            advice = (
-                f"{exam_label} бойынша нәтиже жақсы ({round(percent, 1)}%). "
-                f"Енді мына тақырыптарға назар аударыңыз: {', '.join(focus_topics)}."
-            )
-        else:
-            advice = (
-                f"{exam_label} сынағында нәтижені көтеру үшін әлсіз тақырыптарды жүйелі қайталаңыз: "
-                f"{', '.join(focus_topics)}."
-            )
-
-        tasks = []
-        for topic in focus_topics:
-            if exam_kind == "ent":
-                task_text = f"«{topic}» бойынша 10 тапсырманы уақытпен орындап, әр қатені қысқаша талдаңыз."
-            else:
-                task_text = f"«{topic}» бөліміне 20-25 минуттық шағын жаттығу жасап, кейін өз қателеріңізді тексеріңіз."
-            tasks.append({"topic": topic, "task": task_text, "difficulty": "adaptive"})
-
-        tasks.append(
-            {
-                "topic": "Тайм-менеджмент",
-                "task": "Келесі тестте әр бөлімге уақытты алдын ала бөліп, соңғы 10 минутты тексеруге қалдырыңыз.",
-                "difficulty": "medium",
-            }
-        )
-        tasks.append(
-            {
-                "topic": "Адал формат",
-                "task": "Келесі талпынысты ескертусіз өтуге тырысыңыз: басқа қойындыларға ауыспаңыз және дайын мәтін қоймаңыз.",
-                "difficulty": "adaptive",
-            }
-        )
-        return RecommendationPayload(advice_text=advice, generated_tasks=tasks[:5]), focus_topics
-
-    if percent >= 99.9 and warning_count == 0:
-        advice = (
-            f"Отличный результат! Вы прошли пробный {exam_label} на очень высоком уровне и без предупреждений. "
-            "Попробуйте следующий прогон с тем же качеством и более строгим таймингом."
-        )
-    elif warning_count > 0 and percent >= 90:
-        advice = (
-            f"Результат высокий ({round(percent, 1)}%), но в режиме {exam_label} зафиксированы предупреждения ({warning_count}). "
-            "Чтобы прогресс был честным и устойчивым, пройдите следующую попытку без переключений вкладок и вставки готовых ответов."
-        )
-    elif percent >= 85:
-        advice = (
-            f"Хороший уровень по формату {exam_label} ({round(percent, 1)}%). "
-            f"Для уверенного роста доработайте темы: {', '.join(focus_topics)}."
-        )
-    else:
-        advice = (
-            f"Чтобы улучшить результат по {exam_label}, сфокусируйтесь на слабых зонах: "
-            f"{', '.join(focus_topics)}."
-        )
-
-    tasks = []
-    for topic in focus_topics:
-        if exam_kind == "ent":
-            task_text = f"По теме «{topic}» решите 10 заданий формата ЕНТ в ограниченное время и разберите ошибки."
-        else:
-            task_text = f"По части «{topic}» сделайте 20-25 минут целевой практики IELTS и проверьте точность ответов."
-        tasks.append({"topic": topic, "task": task_text, "difficulty": "adaptive"})
-
-    tasks.append(
-        {
-            "topic": "Тайм-менеджмент",
-            "task": "В следующем тесте заранее распределите время по блокам и оставьте 10 минут на финальную проверку.",
-            "difficulty": "medium",
-        }
-    )
-    tasks.append(
-        {
-            "topic": "Честный режим",
-            "task": "Постарайтесь пройти следующую попытку без предупреждений: без переключений вкладок и вставки готового текста.",
-            "difficulty": "adaptive",
-        }
-    )
-    return RecommendationPayload(advice_text=advice, generated_tasks=tasks[:5]), focus_topics
 
 
 def _normalize_subject_name(value: str) -> str:
@@ -1371,139 +1065,216 @@ def _find_subject_by_aliases(lookup: dict[str, Subject], aliases: list[str]) -> 
 
 def _collect_exam_section_questions(
     *,
+    db: DBSession,
+    student_id: int,
     subject: Subject,
     language: PreferredLanguage,
     mode: TestMode,
     count: int,
     base_seed: str,
     difficulty_order: list[DifficultyLevel],
-    used_library_ids: set[str],
-    used_library_template_keys: set[str],
+    used_catalog_question_ids: set[int],
+    used_catalog_content_hashes: set[str],
     used_prompt_keys: set[str],
 ) -> list[Any]:
-    selected: list[Any] = []
+    question_catalog_service.ensure_subject_catalog_ready(db=db, subject=subject)
+
+    difficulty_sequence: list[DifficultyLevel] = []
+    for level in [*difficulty_order, DifficultyLevel.medium, DifficultyLevel.easy, DifficultyLevel.hard]:
+        if level not in difficulty_sequence:
+            difficulty_sequence.append(level)
+
+    candidate_pool: list[CatalogQuestion] = []
+    seen_candidate_ids: set[int] = set()
+    fetch_limit = max(240, count * 12)
+    for difficulty in difficulty_sequence:
+        rows = question_catalog_service.get_published_candidates(
+            db=db,
+            subject_id=subject.id,
+            difficulty=difficulty,
+            language=language,
+            mode=mode,
+            limit=fetch_limit,
+        )
+        for row in rows:
+            row_id = int(row.id)
+            if row_id in seen_candidate_ids:
+                continue
+            seen_candidate_ids.add(row_id)
+            candidate_pool.append(row)
+
+    if not candidate_pool:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "INSUFFICIENT_QUESTION_POOL",
+                "message": f"Для секции «{subject.name_ru}» нет опубликованных вопросов.",
+            },
+        )
+
+    coverage_map = _load_student_coverage_for_catalog_ids(
+        db=db,
+        student_id=student_id,
+        catalog_question_ids=[int(row.id) for row in candidate_pool],
+    )
+    weak_topics = _collect_weak_topics_from_attempts(
+        db=db,
+        student_id=student_id,
+        subject_id=subject.id,
+    )
+    selector = subject_selector_registry.get(subject=subject)
+    ranked_pool = selector.select(
+        subject=subject,
+        candidates=candidate_pool,
+        coverage_map=coverage_map,
+        weak_topics=weak_topics,
+        limit=max(count * 4, count + 20),
+        seed=f"{base_seed}::selector",
+    )
+    if not ranked_pool:
+        ranked_pool = candidate_pool
+
+    selected: list[GeneratedQuestionPayload] = []
     section_question_keys: set[str] = set()
 
-    def try_add_question(candidate: Any) -> bool:
+    def try_add_question(candidate: GeneratedQuestionPayload) -> bool:
         question_key = _exam_question_uniqueness_key(candidate)
         if not question_key or question_key in used_prompt_keys or question_key in section_question_keys:
             return False
 
         selected.append(candidate)
         section_question_keys.add(question_key)
-
-        explanation = dict(candidate.explanation_json or {})
-        library_id = str(explanation.get("library_question_id", "")).strip()
-        if library_id:
-            used_library_ids.add(library_id)
-        template_key = str(explanation.get("library_template_key", "")).strip().lower()
-        if template_key:
-            used_library_template_keys.add(template_key)
         return True
 
-    for attempt in range(5):
+    for catalog_item in [*ranked_pool, *candidate_pool]:
         if len(selected) >= count:
             break
 
-        remaining = count - len(selected)
-        request_size = min(240, max(remaining * 3, remaining + 8))
-        batch = ai_service.generate_library_only_questions(
-            subject=subject,
-            language=language,
-            mode=mode,
-            num_questions=request_size,
-            seed=f"{base_seed}::library::{attempt}",
-            difficulty_order=difficulty_order,
-            used_library_question_ids=used_library_ids,
-            used_library_content_keys=used_library_template_keys,
-        )
-        if not batch:
-            break
+        catalog_id = int(catalog_item.id)
+        if catalog_id in used_catalog_question_ids:
+            continue
 
-        added_in_batch = 0
-        for question in batch:
-            if try_add_question(question):
-                added_in_batch += 1
-                if len(selected) >= count:
-                    break
+        content_hash = str(catalog_item.content_hash or "").strip().lower()
+        if content_hash and content_hash in used_catalog_content_hashes:
+            continue
 
-        if added_in_batch == 0 and attempt >= 1:
-            break
+        candidate = _catalog_question_to_generated_payload(catalog_item)
+        if candidate is None:
+            continue
 
-    if len(selected) < count:
-        for fallback_attempt in range(8):
-            if len(selected) >= count:
-                break
-            remaining = count - len(selected)
-            fallback_payload = ai_service._generate_non_library_test(  # noqa: SLF001
-                subject=subject,
-                difficulty=(difficulty_order[0] if difficulty_order else DifficultyLevel.medium),
-                language=language,
-                mode=mode,
-                num_questions=max(remaining * 3, remaining + 6),
-                seed=f"{base_seed}::mock-fallback::{fallback_attempt}",
-                focus_topics=[],
-            )
-            added = 0
-            for question in fallback_payload.questions:
-                if try_add_question(question):
-                    added += 1
-                    if len(selected) >= count:
-                        break
-            if added == 0 and fallback_attempt >= 2:
-                break
-
-    if len(selected) < count:
-        for filler_attempt in range(16):
-            if len(selected) >= count:
-                break
-            remaining = count - len(selected)
-            filler_batch = ai_service.generate_library_only_questions(
-                subject=subject,
-                language=language,
-                mode=mode,
-                num_questions=max(remaining * 2, remaining + 4),
-                seed=f"{base_seed}::library-filler::{filler_attempt}",
-                difficulty_order=difficulty_order,
-                used_library_question_ids=used_library_ids,
-                used_library_content_keys=used_library_template_keys,
-            )
-            if not filler_batch:
-                break
-
-            added = 0
-            for question in filler_batch:
-                if try_add_question(question):
-                    added += 1
-                    if len(selected) >= count:
-                        break
-            if added == 0 and filler_attempt >= 3:
-                break
-
-    if len(selected) < count:
-        remaining = count - len(selected)
-        final_payload = ai_service._generate_non_library_test(  # noqa: SLF001
-            subject=subject,
-            difficulty=(difficulty_order[0] if difficulty_order else DifficultyLevel.medium),
-            language=language,
-            mode=mode,
-            num_questions=max(remaining * 4, remaining + 10),
-            seed=f"{base_seed}::deep-topup",
-            focus_topics=[],
-        )
-        for question in final_payload.questions:
-            if try_add_question(question):
-                if len(selected) >= count:
-                    break
+        if not try_add_question(candidate):
+            continue
+        used_catalog_question_ids.add(catalog_id)
+        if content_hash:
+            used_catalog_content_hashes.add(content_hash)
 
     if len(selected) < count:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Недостаточно уникальных вопросов для секции «{subject.name_ru}».",
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "INSUFFICIENT_QUESTION_POOL",
+                "message": (
+                    f"Недостаточно валидных уникальных вопросов для секции «{subject.name_ru}»: "
+                    f"доступно {len(selected)} из {count}."
+                ),
+            },
         )
 
     used_prompt_keys.update(section_question_keys)
     return selected[:count]
+
+
+def _catalog_question_to_generated_payload(catalog_item: CatalogQuestion) -> GeneratedQuestionPayload | None:
+    prompt = str(catalog_item.prompt or "").strip()
+    if len(prompt) < 6:
+        return None
+
+    explanation_json = dict(catalog_item.explanation_json or {})
+    topic_tags = [str(item).strip() for item in (catalog_item.topic_tags_json or []) if str(item).strip()]
+    if not str(explanation_json.get("topic", "")).strip():
+        explanation_json["topic"] = topic_tags[0] if topic_tags else "General"
+    explanation_json["catalog_question_id"] = int(catalog_item.id)
+    explanation_json["catalog_content_hash"] = str(catalog_item.content_hash or "").strip()
+    explanation_json["catalog_source"] = str(catalog_item.source or "").strip()
+
+    question_type = QuestionType(str(catalog_item.type.value))
+    correct_answer_json = dict(catalog_item.correct_answer_json or {})
+
+    options_payload: dict[str, Any] | None = None
+    if question_type in {QuestionType.single_choice, QuestionType.multi_choice}:
+        raw_options = (catalog_item.options_json or {}).get("options", [])
+        normalized_options: list[dict[str, Any]] = []
+        for idx, raw in enumerate(raw_options):
+            if isinstance(raw, dict):
+                option_text = str(raw.get("text", "")).strip()
+                option_id_raw = raw.get("id")
+                if isinstance(option_id_raw, int):
+                    option_id = option_id_raw
+                elif isinstance(option_id_raw, str) and option_id_raw.strip().isdigit():
+                    option_id = int(option_id_raw.strip())
+                else:
+                    option_id = idx + 1
+            else:
+                option_text = str(raw).strip()
+                option_id = idx + 1
+            if not option_text:
+                continue
+            normalized_options.append({"id": option_id, "text": option_text})
+
+        if len(normalized_options) < 2:
+            return None
+        options_payload = {"options": normalized_options}
+        option_ids = {int(item["id"]) for item in normalized_options}
+        correct_option_ids: list[int] = []
+        for value in (correct_answer_json.get("correct_option_ids") or []):
+            try:
+                parsed = int(value)
+            except (TypeError, ValueError):
+                continue
+            if parsed in option_ids and parsed not in correct_option_ids:
+                correct_option_ids.append(parsed)
+
+        if question_type == QuestionType.single_choice and len(correct_option_ids) != 1:
+            return None
+        if question_type == QuestionType.multi_choice and len(correct_option_ids) < 1:
+            return None
+        correct_answer_json = {"correct_option_ids": correct_option_ids}
+    elif question_type in {QuestionType.short_text, QuestionType.oral_answer}:
+        sample_answer = str(correct_answer_json.get("sample_answer", "")).strip()
+        keywords = [
+            str(item).strip()
+            for item in (correct_answer_json.get("keywords") or [])
+            if str(item).strip()
+        ]
+        if not sample_answer and not keywords:
+            return None
+        correct_answer_json = {"sample_answer": sample_answer, "keywords": keywords}
+
+    return GeneratedQuestionPayload(
+        type=question_type,
+        prompt=prompt,
+        options_json=options_payload,
+        correct_answer_json=correct_answer_json,
+        explanation_json=explanation_json,
+        tts_text=prompt,
+    )
+
+
+def _load_student_coverage_for_catalog_ids(
+    *,
+    db: DBSession,
+    student_id: int,
+    catalog_question_ids: list[int],
+) -> dict[int, StudentQuestionCoverage]:
+    if not catalog_question_ids:
+        return {}
+    rows = db.scalars(
+        select(StudentQuestionCoverage).where(
+            StudentQuestionCoverage.student_id == student_id,
+            StudentQuestionCoverage.catalog_question_id.in_(catalog_question_ids),
+        )
+    ).all()
+    return {int(row.catalog_question_id): row for row in rows}
 
 
 def _exam_prompt_key(prompt: str) -> str:
@@ -1519,6 +1290,16 @@ def _exam_prompt_key(prompt: str) -> str:
 
 def _exam_question_uniqueness_key(question: Any) -> str:
     explanation = dict(getattr(question, "explanation_json", {}) or {})
+    catalog_question_id = explanation.get("catalog_question_id")
+    if isinstance(catalog_question_id, int):
+        return f"cq::{catalog_question_id}"
+    if isinstance(catalog_question_id, str) and catalog_question_id.strip().isdigit():
+        return f"cq::{catalog_question_id.strip()}"
+
+    content_hash = str(explanation.get("catalog_content_hash", "")).strip().lower()
+    if content_hash:
+        return f"ch::{content_hash}"
+
     template_key = str(explanation.get("library_template_key", "")).strip().lower()
     if template_key:
         return f"tpl::{template_key}"
@@ -1654,100 +1435,6 @@ def _convert_question_to_oral(*, question: Any, language: PreferredLanguage) -> 
             "tts_text": None,
         }
     )
-
-
-def _collect_student_focus_topics(db: DBSession, student_id: int, subject_id: int, limit: int = 5) -> list[str]:
-    topic_counter: Counter[str] = Counter()
-
-    weak_topics_rows = db.scalars(
-        select(Recommendation.weak_topics_json)
-        .join(Test, Recommendation.test_id == Test.id)
-        .where(Test.student_id == student_id, Test.subject_id == subject_id)
-    ).all()
-    for topics in weak_topics_rows:
-        for topic in topics:
-            value = str(topic).strip()
-            if value:
-                topic_counter[value] += 1
-
-    wrong_topic_rows = db.scalars(
-        select(Question.explanation_json)
-        .join(Test, Question.test_id == Test.id)
-        .join(Answer, Answer.question_id == Question.id)
-        .where(
-            Test.student_id == student_id,
-            Test.subject_id == subject_id,
-            Answer.is_correct.is_(False),
-        )
-    ).all()
-    for explanation in wrong_topic_rows:
-        topic = str((explanation or {}).get("topic", "")).strip()
-        if topic:
-            topic_counter[topic] += 1
-
-    return [topic for topic, _ in topic_counter.most_common(limit)]
-
-
-def _collect_used_library_question_ids(
-    *,
-    db: DBSession,
-    student_id: int,
-    subject_id: int,
-    difficulty: DifficultyLevel,
-    language: PreferredLanguage,
-    mode: TestMode,
-) -> set[str]:
-    explanation_rows = db.scalars(
-        select(Question.explanation_json)
-        .join(Test, Question.test_id == Test.id)
-        .join(Result, Result.test_id == Test.id)
-        .where(
-            Test.student_id == student_id,
-            Test.subject_id == subject_id,
-            Test.difficulty == difficulty,
-            Test.language == language,
-            Test.mode == mode,
-        )
-    ).all()
-
-    used_ids: set[str] = set()
-    for explanation in explanation_rows:
-        value = str((explanation or {}).get("library_question_id", "")).strip()
-        if value:
-            used_ids.add(value)
-    return used_ids
-
-
-def _collect_used_library_content_keys(
-    *,
-    db: DBSession,
-    student_id: int,
-    subject_id: int,
-    difficulty: DifficultyLevel,
-    language: PreferredLanguage,
-    mode: TestMode,
-) -> set[str]:
-    explanation_rows = db.scalars(
-        select(Question.explanation_json)
-        .join(Test, Question.test_id == Test.id)
-        .join(Result, Result.test_id == Test.id)
-        .where(
-            Test.student_id == student_id,
-            Test.subject_id == subject_id,
-            Test.difficulty == difficulty,
-            Test.language == language,
-            Test.mode == mode,
-        )
-    ).all()
-
-    used_keys: set[str] = set()
-    for explanation in explanation_rows:
-        payload = explanation or {}
-        for field in ("library_template_key", "library_base_key", "library_content_key"):
-            value = str(payload.get(field, "")).strip().lower()
-            if value:
-                used_keys.add(value)
-    return used_keys
 
 
 def _load_wrong_questions(db: DBSession, student_id: int, subject_id: int | None = None) -> list[tuple[Question, Test]]:

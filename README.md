@@ -212,6 +212,50 @@ psql -d postgres -c "CREATE DATABASE oku OWNER oku;"
 psql "postgresql://oku:oku@localhost:5432/oku" -c "SELECT current_user, current_database();"
 ```
 
+### Импорт банка вопросов из CSV (каталог)
+Если у вас есть файл вопросов в формате `subject_ru,levels,type,...`, импортируйте его в каталог:
+```bash
+make import-catalog-csv CSV="/absolute/path/to/questions.csv"
+```
+Основной файл в проекте:
+```text
+backend/app/db/database_question.csv
+```
+Импорт именно этого файла:
+```bash
+make import-catalog-local
+```
+Для вашего текущего файла:
+```bash
+make import-catalog-csv CSV="/Users/mellennial/Downloads/База вопросов - main.csv"
+```
+Что делает команда:
+- валидирует вопросы через `question_quality`,
+- обновляет дубликаты по `content_hash`,
+- сразу публикует валидные записи в `catalog_questions` (по умолчанию).
+
+### Добавление нового вопроса в CSV (через скрипт)
+Добавляйте новые строки в `backend/app/db/database_question.csv` через:
+```bash
+python3 scripts/add_question_to_csv.py \
+  --subject-ru "Математика" \
+  --levels "medium" \
+  --type "single_choice" \
+  --topic-ru "Степени" \
+  --topic-kz "Дәрежелер" \
+  --prompt-ru "Чему равно 2^3?" \
+  --prompt-kz "2^3 неге тең?" \
+  --options-ru "6|7|8|9" \
+  --options-kz "6|7|8|9" \
+  --correct-option-ids "3" \
+  --explanation-ru "2^3 = 8" \
+  --explanation-kz "2^3 = 8"
+```
+После добавления строк в CSV выполните:
+```bash
+make import-catalog-local
+```
+
 ## Build/Start (production-like, без Docker)
 
 ### Backend

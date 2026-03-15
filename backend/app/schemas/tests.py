@@ -1,27 +1,14 @@
 from datetime import date, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 from app.models import DifficultyLevel, PreferredLanguage, QuestionType, TestMode
+from app.schemas.test_pipeline import AssembleTestRequest, TestTelemetryPayload, TestWarningSignal
 
 
-class GenerateTestRequest(BaseModel):
-    subject_id: int
-    difficulty: DifficultyLevel
-    language: PreferredLanguage
-    mode: TestMode
-    num_questions: int = Field(default=10, ge=3, le=30)
-    time_limit_minutes: int | None = Field(default=None, ge=5, le=60)
-
-    @field_validator("time_limit_minutes")
-    @classmethod
-    def validate_time_limit_minutes(cls, value: int | None) -> int | None:
-        if value is None:
-            return value
-        if value not in {5, 10, 20, 30, 60}:
-            raise ValueError("time_limit_minutes должен быть одним из значений: 5, 10, 20, 30, 60")
-        return value
+class GenerateTestRequest(AssembleTestRequest):
+    """Backward-compatible alias for the unified assemble payload."""
 
 
 class GenerateMistakesTestRequest(BaseModel):
@@ -81,18 +68,6 @@ class TestResponse(BaseModel):
 class SubmitAnswerItem(BaseModel):
     question_id: int
     student_answer_json: dict[str, Any]
-
-
-class TestWarningSignal(BaseModel):
-    type: str
-    at_seconds: int = Field(default=0, ge=0)
-    question_id: int | None = None
-    details: dict[str, Any] = Field(default_factory=dict)
-
-
-class TestTelemetryPayload(BaseModel):
-    elapsed_seconds: int | None = Field(default=None, ge=0)
-    warnings: list[TestWarningSignal] = Field(default_factory=list)
 
 
 class SubmitTestRequest(BaseModel):

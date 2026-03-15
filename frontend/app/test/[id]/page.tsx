@@ -6,14 +6,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import AppShell from "@/components/AppShell";
 import AuthGuard from "@/components/AuthGuard";
-import Badge from "@/components/ui/Badge";
 import Button from "@/components/ui/Button";
-import Card from "@/components/ui/Card";
-import ProgressBar from "@/components/ui/ProgressBar";
-import { getQuestionTtsAudio, getTest, submitTest } from "@/lib/api";
+import { getQuestionTtsAudio, getSubjects, getTest, submitTest } from "@/lib/api";
 import { getToken } from "@/lib/auth";
 import { tr, useUiLanguage } from "@/lib/i18n";
 import { Language, OptionItem, Question, Test } from "@/lib/types";
+import { assetPaths } from "@/src/assets";
 import styles from "@/app/test/[id]/runner.module.css";
 
 interface AnswerMap {
@@ -112,6 +110,7 @@ export default function TestRunnerPage() {
   const [oralQuestionId, setOralQuestionId] = useState<number | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [integrityWarnings, setIntegrityWarnings] = useState<TestIntegrityWarning[]>([]);
+  const [subjectTitle, setSubjectTitle] = useState("");
   const [sessionHydrated, setSessionHydrated] = useState(false);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const audioElementRef = useRef<HTMLAudioElement | null>(null);
@@ -146,17 +145,48 @@ export default function TestRunnerPage() {
   }, [testId, uiLanguage]);
 
   useEffect(() => {
+    const token = getToken();
+    if (!token || !test) return;
+
+    if (test.exam_kind === "group_custom") {
+      const customTitle = test.exam_config_json?.title?.trim();
+      setSubjectTitle(customTitle || t("Групповой тест", "Топтық тест"));
+      return;
+    }
+
+    let cancelled = false;
+    getSubjects(token)
+      .then((subjects) => {
+        if (cancelled) return;
+        const subject = subjects.find((item) => item.id === test.subject_id);
+        if (!subject) {
+          setSubjectTitle(t("Предмет", "Пән"));
+          return;
+        }
+        setSubjectTitle(uiLanguage === "KZ" ? subject.name_kz : subject.name_ru);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSubjectTitle(t("Предмет", "Пән"));
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [test, t, uiLanguage]);
+
+  useEffect(() => {
     setOralSupported(Boolean(getSpeechRecognitionCtor()));
   }, []);
 
   const question = test?.questions[currentIndex] || null;
   const total = test?.questions.length || 0;
-  const progress = total > 0 ? ((currentIndex + 1) / total) * 100 : 0;
   const timeLimitSeconds = test?.time_limit_seconds ?? null;
   const warningLimit = test?.warning_limit ?? null;
   const remainingSeconds = timeLimitSeconds !== null ? Math.max(timeLimitSeconds - elapsedSeconds, 0) : null;
   const isTimeLimitReached = timeLimitSeconds !== null && elapsedSeconds >= timeLimitSeconds;
-  const isWarningLimitReached = warningLimit !== null && integrityWarnings.length >= warningLimit;
+  const isWarningLimitReached = warningLimit !== null && warningLimit > 0 && integrityWarnings.length >= warningLimit;
 
   const answerForCurrent = useMemo(() => {
     if (!question) return {};
@@ -724,7 +754,7 @@ export default function TestRunnerPage() {
   }, [elapsedSeconds, submit, submitting, test, timeLimitSeconds]);
 
   useEffect(() => {
-    if (!test || warningLimit === null || submitting) return;
+    if (!test || warningLimit === null || warningLimit <= 0 || submitting) return;
     if (integrityWarnings.length < warningLimit) return;
     if (autoSubmittedRef.current) return;
 
@@ -817,7 +847,10 @@ export default function TestRunnerPage() {
       <AuthGuard roles={["student"]}>
         <AppShell>
           <div className={styles.page}>
-            <Card title={t("Загрузка теста", "Тест жүктелуде")}>{t("Подготавливаем вопросы...", "Сұрақтар дайындалып жатыр...")}</Card>
+            <section className={styles.stateCard}>
+              <h2>{t("Загрузка теста", "Тест жүктелуде")}</h2>
+              <p>{t("Подготавливаем вопросы...", "Сұрақтар дайындалып жатыр...")}</p>
+            </section>
           </div>
         </AppShell>
       </AuthGuard>
@@ -829,7 +862,10 @@ export default function TestRunnerPage() {
       <AuthGuard roles={["student"]}>
         <AppShell>
           <div className={styles.page}>
-            <Card title={t("Тест не найден", "Тест табылмады")}>{t("Проверьте ссылку или сгенерируйте новый тест.", "Сілтемені тексеріңіз немесе жаңа тест жасаңыз.")}</Card>
+            <section className={styles.stateCard}>
+              <h2>{t("Тест не найден", "Тест табылмады")}</h2>
+              <p>{t("Проверьте ссылку или сгенерируйте новый тест.", "Сілтемені тексеріңіз немесе жаңа тест жасаңыз.")}</p>
+            </section>
           </div>
         </AppShell>
       </AuthGuard>
@@ -840,49 +876,49 @@ export default function TestRunnerPage() {
     <AuthGuard roles={["student"]}>
       <AppShell>
         <div className={styles.page}>
-          <Card
-            title={`${t("Тест", "Тест")} #${test.id}`}
-            subtitle={`${currentIndex + 1} / ${total} ${t("вопрос", "сұрақ")}`}
-            action={<Badge variant="info">{Math.round(progress)}%</Badge>}
-          >
-            <div className={styles.header}>
-              <div className={styles.headerBadges}>
-                {test.exam_kind && <Badge variant="info">{test.exam_kind.toUpperCase()}</Badge>}
-                <Badge>{formatModeBadge(test.mode, uiLanguage)}</Badge>
-                <Badge>{formatLanguageBadge(test.language, uiLanguage)}</Badge>
-                <Badge>{formatDifficultyBadge(test.difficulty, uiLanguage)}</Badge>
-              </div>
-              <div className={styles.headerMeta}>
-                <span className={`${styles.metaText} ${styles.metaTimer}`}>{t("Таймер", "Таймер")}: {formatDuration(elapsedSeconds)}</span>
-                {remainingSeconds !== null && (
-                  <span className={`${styles.metaText} ${styles.metaRemaining}`}>
-                    {t("Осталось", "Қалды")}: {formatDuration(remainingSeconds)}
-                  </span>
-                )}
-                <span className={`${styles.metaText} ${styles.metaWarnings}`}>
-                  {t("Предупреждения", "Ескертулер")}: {integrityWarnings.length}
-                </span>
-                {warningLimit !== null && (
-                  <span className={`${styles.metaText} ${styles.metaWarningLimit}`}>
-                    {t("Лимит предупреждений", "Ескерту лимиті")}: {warningLimit}
-                  </span>
-                )}
-              </div>
-              <div className={styles.progressWrap}>
-                <ProgressBar value={progress} />
-              </div>
-            </div>
-            {isTimeLimitReached && (
-              <div className={styles.timeLimitError}>{t("Лимит времени достигнут. Отправляем тест на проверку...", "Уақыт лимиті бітті. Тест тексеруге жіберіліп жатыр...")}</div>
-            )}
-            {isWarningLimitReached && (
-              <div className={styles.timeLimitError}>{t("Достигнут лимит предупреждений. Тест автоматически отправляется.", "Ескерту лимиті жетті. Тест автоматты түрде жіберіледі.")}</div>
-            )}
-          </Card>
+          <section className={styles.testLayout}>
+            <header className={styles.subjectBlock}>
+              <h1 className={styles.subjectTitle}>{subjectTitle || t("Предмет", "Пән")}</h1>
+              <p className={styles.settingsLine}>
+                <span>{formatModeBadge(test.mode, uiLanguage)}</span>
+                <span className={styles.settingsSep}>|</span>
+                <span>{formatLanguageBadge(test.language, uiLanguage)}</span>
+                <span className={styles.settingsSep}>|</span>
+                <span>{formatDifficultyBadge(test.difficulty, uiLanguage)}</span>
+              </p>
+            </header>
 
-          <Card title={t("Вопрос", "Сұрақ")}>
-            <div className={styles.questionWrap}>
-              <h3 className={styles.questionTitle}>{sanitizeQuestionPrompt(question.prompt)}</h3>
+            <section className={styles.header}>
+              <div className={styles.headerMeta}>
+                <span className={styles.metaText}>
+                  <img alt="" aria-hidden className={styles.metaIcon} src={assetPaths.icons.timer} />
+                  <span className={styles.metaCurrent}>{formatDuration(elapsedSeconds)}</span>
+                  <span className={styles.metaLimit}>
+                    {remainingSeconds !== null ? formatDuration(remainingSeconds) : "--:--"}
+                  </span>
+                </span>
+
+                <span className={styles.metaText}>
+                  <img alt="" aria-hidden className={styles.metaIcon} src={assetPaths.icons.warningDiamond} />
+                  <span className={styles.metaCurrent}>{integrityWarnings.length}</span>
+                  <span className={styles.metaLimit}>{warningLimit ?? "—"}</span>
+                </span>
+              </div>
+            </section>
+
+            {(isTimeLimitReached || isWarningLimitReached) && (
+              <div className={styles.timeLimitError}>
+                {isTimeLimitReached
+                  ? t("Лимит времени достигнут. Отправляем тест на проверку...", "Уақыт лимиті бітті. Тест тексеруге жіберіліп жатыр...")
+                  : t("Достигнут лимит предупреждений. Тест автоматически отправляется.", "Ескерту лимиті жетті. Тест автоматты түрде жіберіледі.")}
+              </div>
+            )}
+
+            <section className={styles.questionWrap}>
+              <p className={styles.questionCount}>
+                {currentIndex + 1} {t("из", "із")} {total}
+              </p>
+              <h2 className={styles.questionTitle}>{sanitizeQuestionPrompt(question.prompt)}</h2>
               {question.options_json?.image_data_url ? (
                 <div className={styles.questionImageWrap}>
                   <img
@@ -892,49 +928,49 @@ export default function TestRunnerPage() {
                   />
                 </div>
               ) : null}
+            </section>
 
-              {test.mode === "audio" && (
-                <div className={styles.audioControls}>
-                  <Button variant="secondary" disabled={audioLoading} onClick={() => void speakQuestion(question)}>
-                    <Volume2 size={16} />{" "}
-                    {audioLoading
-                      ? t("Готовим аудио...", "Аудио дайындалып жатыр...")
-                      : audioPlaying
-                        ? t("Повторить озвучку", "Қайта дыбыстау")
-                        : t("Озвучить вопрос", "Сұрақты дыбыстау")}
-                  </Button>
-                  <Button variant="ghost" disabled={!audioPlaying && !audioLoading} onClick={stopAudio}>
-                    <VolumeX size={16} /> {t("Стоп", "Тоқтату")}
-                  </Button>
-                </div>
+            {test.mode === "audio" && (
+              <div className={styles.audioControls}>
+                <Button variant="secondary" disabled={audioLoading} onClick={() => void speakQuestion(question)}>
+                  <Volume2 size={16} />{" "}
+                  {audioLoading
+                    ? t("Готовим аудио...", "Аудио дайындалып жатыр...")
+                    : audioPlaying
+                      ? t("Повторить озвучку", "Қайта дыбыстау")
+                      : t("Озвучить вопрос", "Сұрақты дыбыстау")}
+                </Button>
+                <Button variant="ghost" disabled={!audioPlaying && !audioLoading} onClick={stopAudio}>
+                  <VolumeX size={16} /> {t("Стоп", "Тоқтату")}
+                </Button>
+              </div>
+            )}
+            {test.mode === "audio" && audioError && <div className={styles.audioError}>{audioError}</div>}
+
+            {question.type === "single_choice" && renderSingleChoice(question, answerForCurrent, updateAnswer)}
+            {question.type === "multi_choice" && renderMultiChoice(question, answerForCurrent, toggleMulti)}
+            {(question.type === "short_text" || question.type === "oral_answer") &&
+              renderTextAnswer(
+                question,
+                uiLanguage,
+                answerForCurrent,
+                handleTextFocus,
+                handleTextChange,
+                handleTextPaste,
+                handleTextShortcut,
+                test.mode === "oral",
+                {
+                  supported: oralSupported,
+                  listening: oralListening,
+                  activeQuestionId: oralQuestionId,
+                  error: oralError,
+                  onStart: startOralRecognition,
+                  onStop: () => stopOralRecognition(),
+                },
               )}
-              {test.mode === "audio" && audioError && <div className={styles.audioError}>{audioError}</div>}
+            {question.type === "matching" && renderMatching(question, uiLanguage, answerForCurrent, updateMatching)}
 
-              {question.type === "single_choice" && renderSingleChoice(question, answerForCurrent, updateAnswer)}
-              {question.type === "multi_choice" && renderMultiChoice(question, answerForCurrent, toggleMulti)}
-              {(question.type === "short_text" || question.type === "oral_answer") &&
-                renderTextAnswer(
-                  question,
-                  uiLanguage,
-                  answerForCurrent,
-                  handleTextFocus,
-                  handleTextChange,
-                  handleTextPaste,
-                  handleTextShortcut,
-                  test.mode === "oral",
-                  {
-                    supported: oralSupported,
-                    listening: oralListening,
-                    activeQuestionId: oralQuestionId,
-                    error: oralError,
-                    onStart: startOralRecognition,
-                    onStop: () => stopOralRecognition(),
-                  },
-                )}
-              {question.type === "matching" && renderMatching(question, uiLanguage, answerForCurrent, updateMatching)}
-            </div>
-
-            {error && <div className="errorText">{error}</div>}
+            {error && <div className={styles.errorText}>{error}</div>}
 
             <div className={styles.navRow}>
               <Button
@@ -965,7 +1001,7 @@ export default function TestRunnerPage() {
                 </Button>
               )}
             </div>
-          </Card>
+          </section>
         </div>
       </AppShell>
     </AuthGuard>
@@ -981,17 +1017,25 @@ function renderSingleChoice(
   const options = question.options_json?.options || [];
 
   return (
-    <div className="stack">
-      {options.map((option: OptionItem) => (
-        <label className={styles.option} key={`${question.id}-${option.id}`}>
+    <div className={styles.optionList}>
+      {options.map((option: OptionItem, optionIndex: number) => (
+        <label
+          className={`${styles.option} ${selected === option.id ? styles.optionSelected : ""}`}
+          key={`${question.id}-${option.id}`}
+        >
           <input
+            className={styles.optionInput}
             checked={selected === option.id}
             name={`single-${question.id}`}
             onChange={() => updateAnswer(question.id, { selected_option_ids: [option.id] })}
             type="radio"
           />
-          <span className={styles.optionLabel}>{extractOptionLabel(option.text, option.id)}</span>
-          <span className={styles.optionText}>{stripOptionPrefix(option.text)}</span>
+          <span className={`${styles.optionLabel} ${selected === option.id ? styles.optionLabelSelected : ""}`}>
+            {extractOptionLabel(option.text, option.id, optionIndex)}
+          </span>
+          <span className={`${styles.optionText} ${selected === option.id ? styles.optionTextSelected : ""}`}>
+            {stripOptionPrefix(option.text)}
+          </span>
         </label>
       ))}
     </div>
@@ -1007,16 +1051,24 @@ function renderMultiChoice(
   const options = question.options_json?.options || [];
 
   return (
-    <div className="stack">
-      {options.map((option: OptionItem) => (
-        <label className={styles.option} key={`${question.id}-${option.id}`}>
+    <div className={styles.optionList}>
+      {options.map((option: OptionItem, optionIndex: number) => (
+        <label
+          className={`${styles.option} ${selected.includes(option.id) ? styles.optionSelected : ""}`}
+          key={`${question.id}-${option.id}`}
+        >
           <input
+            className={styles.optionInput}
             checked={selected.includes(option.id)}
             onChange={() => toggleMulti(question.id, option.id)}
             type="checkbox"
           />
-          <span className={styles.optionLabel}>{extractOptionLabel(option.text, option.id)}</span>
-          <span className={styles.optionText}>{stripOptionPrefix(option.text)}</span>
+          <span className={`${styles.optionLabel} ${selected.includes(option.id) ? styles.optionLabelSelected : ""}`}>
+            {extractOptionLabel(option.text, option.id, optionIndex)}
+          </span>
+          <span className={`${styles.optionText} ${selected.includes(option.id) ? styles.optionTextSelected : ""}`}>
+            {stripOptionPrefix(option.text)}
+          </span>
         </label>
       ))}
     </div>
@@ -1198,13 +1250,13 @@ function formatDuration(totalSeconds: number): string {
   return `${minutes}:${seconds}`;
 }
 
-function extractOptionLabel(text: string, optionId: number): string {
-  const match = text.match(/^\s*([A-Z])\s*[\).:-]/i);
-  if (match?.[1]) {
-    return match[1].toUpperCase();
-  }
+function extractOptionLabel(_text: string, optionId: number, optionIndex: number): string {
   const base = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-  return base[optionId] || "?";
+  if (optionIndex >= 0 && optionIndex < base.length) {
+    return base[optionIndex];
+  }
+  const normalizedIdIndex = optionId - 1;
+  return base[normalizedIdIndex] || "?";
 }
 
 function stripOptionPrefix(text: string): string {

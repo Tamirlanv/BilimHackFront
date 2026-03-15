@@ -4,12 +4,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.auth import router as auth_router
+from app.api.catalog import router as catalog_router
 from app.api.jobs import router as jobs_router
 from app.api.profile import router as profile_router
 from app.api.students import router as students_router
 from app.api.subjects import router as subjects_router
 from app.api.teacher import router as teacher_router
 from app.api.tests import router as tests_router
+from app.api.v2 import router as v2_router
 from app.core.config import settings
 from app.core.logging_config import configure_logging
 from app.core.rate_limit import RateLimitMiddleware
@@ -52,12 +54,15 @@ def startup_event() -> None:
 def root() -> dict[str, str]:
     return {"status": "ok", "docs": "/docs", "api_prefix": settings.api_prefix_normalized}
 
-_routers = [auth_router, subjects_router, tests_router, students_router, teacher_router, profile_router, jobs_router]
-for _router in _routers:
+_v1_routers = [auth_router, subjects_router, tests_router, students_router, teacher_router, profile_router, catalog_router, jobs_router]
+for _router in _v1_routers:
     app.include_router(_router, prefix=settings.api_prefix_normalized)
 
+# v2 routes are mounted with explicit `/api/v2` prefix to keep backward compatibility.
+app.include_router(v2_router)
+
 if settings.enable_legacy_routes and settings.api_prefix_normalized:
-    for _router in _routers:
+    for _router in _v1_routers:
         app.include_router(_router)
 
 

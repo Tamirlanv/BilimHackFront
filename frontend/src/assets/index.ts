@@ -42,6 +42,7 @@ export const assetPaths = {
     questionAnswer: `/assets/icons/ic_round-question-answer.svg?v=${ICONS_VERSION}`,
     warningDiamond: `/assets/icons/mynaui_danger-diamond-solid.svg?v=${ICONS_VERSION}`,
     schedule: `/assets/icons/uis_schedule.svg?v=${ICONS_VERSION}`,
+    timer: `/assets/icons/mingcute_time-fill.svg?v=${ICONS_VERSION}`,
     aiGenerate: `/assets/icons/octicon_north-star-16.svg?v=${ICONS_VERSION}`,
     attachFile: `/assets/icons/tabler_link.svg?v=${ICONS_VERSION}`,
     testCreated: `/assets/icons/icon-park-solid_inbox-success.svg?v=${ICONS_VERSION}`,
