@@ -312,11 +312,25 @@ def _get_llm_provider_cached(provider_name: str) -> LLMProvider:
     return DisabledProvider()
 
 
-def _normalize_provider_name(provider_name: str | None = None) -> str:
+def _normalize_provider_name(provider_name: str | None = None, *, audience: str | None = None) -> str:
     if provider_name and provider_name.strip():
         normalized = provider_name.strip().lower()
     else:
-        normalized = (settings.ai_provider or "").strip().lower() or "openai"
+        normalized_audience = str(audience or "").strip().lower()
+        if normalized_audience == "teacher":
+            normalized = (
+                settings.teacher_ai_provider
+                or settings.ai_provider
+                or "openai"
+            ).strip().lower()
+        elif normalized_audience == "student":
+            normalized = (
+                settings.student_ai_provider
+                or settings.ai_provider
+                or "openai"
+            ).strip().lower()
+        else:
+            normalized = (settings.ai_provider or "").strip().lower() or "openai"
 
     # Backward-compatible aliases from old providers.
     if normalized in {"deepseek", "gemini", "claude"}:
@@ -324,13 +338,13 @@ def _normalize_provider_name(provider_name: str | None = None) -> str:
     return normalized
 
 
-def get_llm_provider(provider_name: str | None = None) -> LLMProvider:
-    normalized = _normalize_provider_name(provider_name)
+def get_llm_provider(provider_name: str | None = None, *, audience: str | None = None) -> LLMProvider:
+    normalized = _normalize_provider_name(provider_name, audience=audience)
     return _get_llm_provider_cached(normalized)
 
 
 def is_llm_provider_configured(provider_name: str | None = None, *, audience: str | None = None) -> bool:
-    normalized = _normalize_provider_name(provider_name)
+    normalized = _normalize_provider_name(provider_name, audience=audience)
     if normalized == "openai":
         return bool(settings.get_openai_api_key(audience))
     return False
@@ -346,7 +360,7 @@ def llm_chat(
     max_tokens: int | None = None,
     audience: str | None = None,
 ) -> str:
-    provider = get_llm_provider(provider_name)
+    provider = get_llm_provider(provider_name, audience=audience)
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt},
