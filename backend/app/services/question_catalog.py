@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import case, delete, func, select
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -49,8 +49,16 @@ class QuestionCatalogService:
 
     @staticmethod
     def _split_csv_items(raw: str) -> list[str]:
-        normalized = str(raw or "").replace("\n", "|").replace(";", "|").replace(",", "|")
-        return [item.strip() for item in normalized.split("|") if item.strip()]
+        value = str(raw or "").replace("\r", "")
+        if "|" in value:
+            parts = value.split("|")
+        elif "\n" in value:
+            parts = value.split("\n")
+        elif ";" in value:
+            parts = value.split(";")
+        else:
+            parts = [value]
+        return [item.strip() for item in parts if item.strip()]
 
     @staticmethod
     def _parse_difficulties(raw: str) -> list[DifficultyLevel]:
@@ -273,6 +281,7 @@ class QuestionCatalogService:
         csv_path: str,
         source: str = "csv_question_bank",
         publish: bool = True,
+        replace_existing_source_prefix: str | None = None,
     ) -> CatalogImportStats:
         stats = CatalogImportStats()
         now = datetime.now(timezone.utc)
@@ -284,6 +293,19 @@ class QuestionCatalogService:
         subjects = db.scalars(select(Subject)).all()
         by_ru = {item.name_ru.strip().lower(): item for item in subjects}
         by_kz = {item.name_kz.strip().lower(): item for item in subjects}
+
+        source_prefix = str(replace_existing_source_prefix or "").strip()
+        if source_prefix:
+            db.execute(
+                delete(CatalogQuestion).where(
+                    CatalogQuestion.source == source_prefix
+                )
+            )
+            db.execute(
+                delete(CatalogQuestion).where(
+                    CatalogQuestion.source.like(f"{source_prefix}:%")
+                )
+            )
 
         with file_path.open("r", encoding="utf-8-sig", newline="") as handle:
             reader = csv.DictReader(handle)
@@ -449,9 +471,18 @@ class QuestionCatalogService:
                 CatalogQuestion.difficulty == difficulty,
                 CatalogQuestion.mode == mode,
             )
-            .order_by(CatalogQuestion.id.asc())
+            .order_by(
+                case(
+                    (CatalogQuestion.source.like("csv_question_bank:%"), 0),
+                    else_=1,
+                ),
+                CatalogQuestion.id.asc(),
+            )
             .limit(limit)
         ).all()
+        csv_mode_rows = [row for row in mode_rows if str(row.source or "").startswith("csv_question_bank")]
+        if csv_mode_rows:
+            return csv_mode_rows
         if mode_rows or not allow_mode_fallback:
             return mode_rows
 
@@ -464,9 +495,18 @@ class QuestionCatalogService:
                 CatalogQuestion.difficulty == difficulty,
                 CatalogQuestion.mode == TestMode.text,
             )
-            .order_by(CatalogQuestion.id.asc())
+            .order_by(
+                case(
+                    (CatalogQuestion.source.like("csv_question_bank:%"), 0),
+                    else_=1,
+                ),
+                CatalogQuestion.id.asc(),
+            )
             .limit(limit)
         ).all()
+        csv_text_rows = [row for row in text_rows if str(row.source or "").startswith("csv_question_bank")]
+        if csv_text_rows:
+            return csv_text_rows
         return text_rows
 
 

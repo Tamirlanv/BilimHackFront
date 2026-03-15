@@ -217,6 +217,12 @@ psql "postgresql://oku:oku@localhost:5432/oku" -c "SELECT current_user, current_
 ```bash
 make import-catalog-csv CSV="/absolute/path/to/questions.csv"
 ```
+Если нужно полностью переимпортировать CSV-банк (удалить старые `csv_question_bank:*` и загрузить заново):
+```bash
+. .venv/bin/activate && python3 scripts/import_catalog_csv.py \
+  --csv "backend/app/db/database_question.csv" \
+  --replace-source-prefix "csv_question_bank"
+```
 Основной файл в проекте:
 ```text
 backend/app/db/database_question.csv
@@ -244,13 +250,15 @@ CATALOG_AUTO_IMPORT_CSV_ON_STARTUP=true
 CATALOG_AUTO_IMPORT_CSV_PATH=app/db/database_question.csv
 CATALOG_AUTO_IMPORT_CSV_SOURCE=csv_question_bank
 CATALOG_AUTO_IMPORT_CSV_PUBLISH=true
+CATALOG_AUTO_IMPORT_CSV_REPLACE_EXISTING=true
 CATALOG_AUTO_IMPORT_CSV_FAIL_FAST=false
 ```
 
 Как это работает:
 - на старте backend считает hash CSV,
 - если этот hash уже импортирован в БД, повторный импорт пропускается,
-- если CSV изменился, выполняется upsert и публикация.
+- если CSV изменился, выполняется upsert и публикация,
+- при `CATALOG_AUTO_IMPORT_CSV_REPLACE_EXISTING=true` старые CSV-версии (`csv_question_bank:*`) удаляются перед импортом.
 
 ### Добавление нового вопроса в CSV (через скрипт)
 Добавляйте новые строки в `backend/app/db/database_question.csv` через:

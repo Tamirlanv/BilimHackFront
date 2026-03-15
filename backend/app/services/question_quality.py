@@ -36,6 +36,13 @@ def normalize_text(value: Any) -> str:
     return text
 
 
+def sanitize_prompt_text(value: Any) -> str:
+    text = normalize_text(value)
+    # Remove imported numbering suffixes like "(28)" that should not be shown in UI.
+    text = re.sub(r"\s*\(\d+\)\s*$", "", text)
+    return text.strip()
+
+
 def normalize_topic_tags(values: Any) -> list[str]:
     if not isinstance(values, list):
         return []
@@ -134,6 +141,7 @@ def validate_question_payload(
         question_type = QuestionType.single_choice.value
 
     prompt = normalize_text(payload.get("prompt"))
+    prompt = sanitize_prompt_text(prompt)
     if len(prompt) < 6:
         issues.append("prompt is too short")
 
@@ -172,6 +180,14 @@ def validate_question_payload(
             max_id = len(options)
             if any(option_id < 1 or option_id > max_id for option_id in correct_option_ids):
                 issues.append("correct option id is out of range")
+
+            prompt_lower = prompt.lower()
+            asks_comma_in_sentence = (
+                "запят" in prompt_lower
+                and ("предложен" in prompt_lower or "вариант" in prompt_lower)
+            )
+            if asks_comma_in_sentence and all("," not in option for option in options):
+                issues.append("punctuation prompt expects comma-bearing options")
 
         normalized_payload.update(
             {

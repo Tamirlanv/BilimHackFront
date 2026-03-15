@@ -105,8 +105,9 @@ def _sync_catalog_csv_on_startup() -> None:
         return
 
     try:
+        import_version = "v2"
         digest = sha256(csv_path.read_bytes()).hexdigest()[:16]
-        source_label = f"{settings.catalog_auto_import_csv_source}:{digest}"
+        source_label = f"{settings.catalog_auto_import_csv_source}:{import_version}:{digest}"
         with Session(engine) as db:
             existing = db.scalar(select(CatalogQuestion.id).where(CatalogQuestion.source == source_label).limit(1))
             if existing is not None:
@@ -118,6 +119,11 @@ def _sync_catalog_csv_on_startup() -> None:
                 csv_path=str(csv_path),
                 source=source_label,
                 publish=settings.catalog_auto_import_csv_publish,
+                replace_existing_source_prefix=(
+                    settings.catalog_auto_import_csv_source
+                    if settings.catalog_auto_import_csv_replace_existing
+                    else None
+                ),
             )
             logger.info(
                 "Catalog CSV auto-import completed: imported=%s updated=%s skipped=%s invalid=%s hash=%s",

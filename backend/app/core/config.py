@@ -104,6 +104,7 @@ class Settings(BaseSettings):
     catalog_auto_import_csv_path: str = "app/db/database_question.csv"
     catalog_auto_import_csv_source: str = "csv_question_bank"
     catalog_auto_import_csv_publish: bool = True
+    catalog_auto_import_csv_replace_existing: bool = True
     catalog_auto_import_csv_fail_fast: bool = False
 
     email_verification_enabled: bool = True

@@ -37,6 +37,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Import as validated only (do not publish immediately).",
     )
+    parser.add_argument(
+        "--replace-source-prefix",
+        default="",
+        help="Delete existing catalog rows by source prefix (e.g. csv_question_bank) before import.",
+    )
     return parser.parse_args()
 
 
@@ -50,6 +55,7 @@ def main() -> int:
             csv_path=csv_path,
             source=args.source,
             publish=not args.no_publish,
+            replace_existing_source_prefix=(args.replace_source_prefix.strip() or None),
         )
         published_count = int(
             db.scalar(
@@ -72,4 +78,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
