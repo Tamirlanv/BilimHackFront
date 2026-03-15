@@ -8,11 +8,15 @@ from typing import Any
 from app.core.config import settings
 from app.models import DifficultyLevel, PreferredLanguage, TestMode
 from app.schemas.teacher_tests import TeacherCustomMaterialQuestion
-from app.services.llm import is_llm_provider_configured, llm_chat
+from app.services.llm import LLMProviderError, is_llm_provider_configured, llm_chat
 from app.services.question_quality import validate_question_payload
 
 
 class MaterialQualityError(ValueError):
+    pass
+
+
+class MaterialProviderError(RuntimeError):
     pass
 
 
@@ -33,14 +37,16 @@ class TeacherMaterialService:
         user_id: int,
     ) -> TeacherMaterialResult:
         if not is_llm_provider_configured(audience="teacher"):
-            raise MaterialQualityError("MATERIAL_QUALITY_FAILED: LLM provider is not configured for teacher generation.")
+            raise MaterialProviderError("MATERIAL_PROVIDER_FAILED: LLM provider is not configured for teacher generation.")
 
         normalized_topic = str(topic).strip()
         requested = max(1, int(questions_count))
         accepted: list[TeacherCustomMaterialQuestion] = []
         rejected = 0
         seen_prompt_keys: set[str] = set()
-        last_error: str | None = None
+        last_quality_error: str | None = None
+        last_provider_error: str | None = None
+        successful_batches = 0
 
         max_calls = 6
         for attempt in range(1, max_calls + 1):
@@ -60,8 +66,15 @@ class TeacherMaterialService:
                     user_id=user_id,
                     attempt=attempt,
                 )
+                successful_batches += 1
+            except LLMProviderError as exc:
+                last_provider_error = str(exc)
+                continue
+            except MaterialProviderError as exc:
+                last_provider_error = str(exc)
+                continue
             except Exception as exc:  # noqa: BLE001
-                last_error = str(exc)
+                last_provider_error = str(exc)
                 continue
 
             before_count = len(accepted)
@@ -76,14 +89,18 @@ class TeacherMaterialService:
                 rejected_prefix=rejected,
             )
             if len(accepted) == before_count:
-                last_error = "LLM returned batch without valid questions."
+                last_quality_error = "LLM returned batch without valid questions."
             if len(accepted) >= requested:
                 return TeacherMaterialResult(questions=accepted[:requested], rejected_count=rejected)
 
         if accepted:
             return TeacherMaterialResult(questions=accepted[:requested], rejected_count=rejected)
 
-        details = last_error or "LLM returned no valid questions."
+        if successful_batches == 0:
+            details = last_provider_error or "LLM provider returned no successful response."
+            raise MaterialProviderError(f"MATERIAL_PROVIDER_FAILED: {details}")
+
+        details = last_quality_error or "LLM returned no valid questions."
         raise MaterialQualityError(f"MATERIAL_QUALITY_FAILED: {details}")
 
     def _generate_raw_with_llm(

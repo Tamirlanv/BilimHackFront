@@ -1,5 +1,6 @@
 import csv
 import io
+import logging
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -62,10 +63,15 @@ from app.services.progress import (
     build_student_progress,
 )
 from app.services.teacher_file_import import MAX_IMPORT_SIZE_BYTES, parse_teacher_test_import_file
-from app.services.teacher_material_service import MaterialQualityError, teacher_material_service
+from app.services.teacher_material_service import (
+    MaterialProviderError,
+    MaterialQualityError,
+    teacher_material_service,
+)
 from app.services.question_quality import validate_question_payload
 
 router = APIRouter(prefix="/teacher", tags=["teacher"])
+logger = logging.getLogger(__name__)
 
 
 @router.get("/groups", response_model=list[TeacherGroupListItem])
@@ -584,7 +590,33 @@ def generate_custom_test_material(
             questions_count=questions_count,
             user_id=current_user.id,
         )
+    except MaterialProviderError as exc:
+        logger.error(
+            "Teacher material generation provider failure user_id=%s topic=%r difficulty=%s language=%s questions_count=%s error=%s",
+            current_user.id,
+            topic,
+            payload.difficulty.value,
+            payload.language.value,
+            questions_count,
+            str(exc),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "code": "MATERIAL_PROVIDER_FAILED",
+                "message": "Не удалось получить ответ от AI-провайдера. Проверьте ключи и модель в окружении сервера.",
+            },
+        ) from exc
     except MaterialQualityError as exc:
+        logger.warning(
+            "Teacher material generation quality failure user_id=%s topic=%r difficulty=%s language=%s questions_count=%s error=%s",
+            current_user.id,
+            topic,
+            payload.difficulty.value,
+            payload.language.value,
+            questions_count,
+            str(exc),
+        )
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={
