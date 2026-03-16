@@ -40,7 +40,12 @@ export default function LoginPage() {
     try {
       const response = await login({ email, password, remember_me: rememberMe });
       saveSession(response, { rememberMe });
-      router.push(response.user.role === "teacher" ? "/teacher" : "/dashboard");
+      const rawNext =
+        typeof window !== "undefined"
+          ? new URLSearchParams(window.location.search).get("next")?.trim() || ""
+          : "";
+      const safeNext = rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "";
+      router.push(safeNext || (response.user.role === "teacher" ? "/teacher" : "/dashboard"));
     } catch (err) {
       setError(err instanceof Error ? err.message : t("Не удалось выполнить вход", "Кіру орындалмады"));
     } finally {

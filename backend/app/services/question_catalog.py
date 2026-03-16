@@ -32,6 +32,58 @@ class CatalogImportStats:
 
 class QuestionCatalogService:
     @staticmethod
+    def _row_to_validation_payload(row: CatalogQuestion) -> dict[str, Any]:
+        raw_options = []
+        options_block = row.options_json or {}
+        if isinstance(options_block, dict):
+            raw_options = list(options_block.get("options", []))
+        elif isinstance(options_block, list):
+            raw_options = list(options_block)
+
+        normalized_options: list[str] = []
+        for item in raw_options:
+            if isinstance(item, dict):
+                text = str(item.get("text", "")).strip()
+            else:
+                text = str(item).strip()
+            if text:
+                normalized_options.append(text)
+
+        correct_answer_json = row.correct_answer_json or {}
+        if not isinstance(correct_answer_json, dict):
+            correct_answer_json = {}
+
+        explanation_json = row.explanation_json or {}
+        if not isinstance(explanation_json, dict):
+            explanation_json = {}
+
+        return {
+            "type": row.type.value,
+            "prompt": row.prompt,
+            "options": normalized_options,
+            "correct_option_ids": correct_answer_json.get("correct_option_ids", []),
+            "sample_answer": correct_answer_json.get("sample_answer", ""),
+            "keywords": correct_answer_json.get("keywords", []),
+            "topic_tags": list(row.topic_tags_json or []),
+            "explanation": explanation_json.get("correct_explanation", ""),
+        }
+
+    def _filter_valid_published_rows(self, *, rows: list[CatalogQuestion]) -> list[CatalogQuestion]:
+        if not rows:
+            return []
+        valid_rows: list[CatalogQuestion] = []
+        for row in rows:
+            validation = validate_question_payload(
+                payload=self._row_to_validation_payload(row),
+                language=row.language,
+                mode=row.mode,
+                difficulty=row.difficulty,
+            )
+            if validation.is_valid:
+                valid_rows.append(row)
+        return valid_rows
+
+    @staticmethod
     def _catalog_unique_key(
         *,
         subject_id: int,
@@ -480,6 +532,7 @@ class QuestionCatalogService:
             )
             .limit(limit)
         ).all()
+        mode_rows = self._filter_valid_published_rows(rows=mode_rows)
         csv_mode_rows = [row for row in mode_rows if str(row.source or "").startswith("csv_question_bank")]
         if csv_mode_rows:
             return csv_mode_rows
@@ -504,6 +557,7 @@ class QuestionCatalogService:
             )
             .limit(limit)
         ).all()
+        text_rows = self._filter_valid_published_rows(rows=text_rows)
         csv_text_rows = [row for row in text_rows if str(row.source or "").startswith("csv_question_bank")]
         if csv_text_rows:
             return csv_text_rows

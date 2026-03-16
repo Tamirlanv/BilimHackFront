@@ -106,7 +106,7 @@
 
 .table {
   width: 100%;
-  min-width: 860px;
+  min-width: 820px;
   border-collapse: collapse;
   background: #ffffff;
   table-layout: fixed;
@@ -174,10 +174,50 @@
   border: none;
   background: transparent;
   color: #6a63f5;
-  font-size: 16px;
-  font-weight: 350;
+  font-size: 14px;
+  font-weight: 500;
   cursor: pointer;
   padding: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.studentRow:hover .openButton {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.rowActions {
+  text-align: right !important;
+}
+
+.actionColumn {
+  width: 74px;
+}
+
+.colName {
+  width: 35%;
+}
+
+.colResult {
+  width: 10%;
+}
+
+.colWarnings {
+  width: 16%;
+}
+
+.colSubmitted {
+  width: 13%;
+}
+
+.colGroup {
+  width: 18%;
+}
+
+.colActions {
+  width: 8%;
 }
 
 .actions {
@@ -253,8 +293,13 @@
 
   .groupText strong,
   .table thead th,
-  .openButton,
   .exportButton {
     font-size: 16px;
+  }
+
+  .openButton {
+    font-size: 14px;
+    opacity: 1;
+    pointer-events: auto;
   }
 }

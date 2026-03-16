@@ -243,6 +243,82 @@
   font-weight: 350;
 }
 
+.inviteOverlay {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(16, 18, 30, 0.42);
+  z-index: 70;
+}
+
+.inviteModal {
+  width: min(540px, 100%);
+  background: #fff;
+  border-radius: 20px;
+  padding: 32px 24px;
+  display: grid;
+  gap: 32px;
+  box-shadow: var(--shadow-soft);
+  text-align: center;
+}
+
+.inviteHeadingBlock {
+  display: grid;
+  gap: 8px;
+}
+
+.inviteModal h3 {
+  margin: 0;
+  color: var(--ink-strong);
+  font-size: 24px;
+  line-height: 1.25;
+  font-weight: 600;
+}
+
+.inviteStatusText,
+.inviteStatusError {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 16px;
+  line-height: 1.35;
+  font-weight: 400;
+}
+
+.inviteStatusError {
+  color: #bf1f39;
+}
+
+.inviteInfoBlock {
+  display: grid;
+  gap: 8px;
+}
+
+.inviteInfoRow {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 16px;
+  line-height: 1.35;
+  font-weight: 400;
+}
+
+.inviteInfoLabel {
+  color: var(--ink-muted);
+  font-weight: 400;
+}
+
+.inviteInfoValue {
+  color: var(--ink-strong);
+  font-weight: 600;
+}
+
+.inviteActions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
 @media (max-width: 1200px) {
   .cardGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -263,14 +339,21 @@
   .linkButton,
   .showAllButton,
   .emptyText,
+  .inviteStatusText,
+  .inviteStatusError,
+  .inviteInfoRow,
   .footer {
-    font-size: 12px;
+    font-size: 14px;
   }
 
   .statLabel,
   .cardTitle,
   .cardActions button:first-child {
     font-size: 14px;
+  }
+
+  .inviteModal h3 {
+    font-size: 20px;
   }
 
   .cardDate {
@@ -302,5 +385,9 @@
   .sectionHeaderCentered {
     justify-items: start;
     text-align: left;
+  }
+
+  .inviteActions {
+    grid-template-columns: 1fr;
   }
 }

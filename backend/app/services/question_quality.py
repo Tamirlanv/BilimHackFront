@@ -30,6 +30,17 @@ _ALLOWED_TYPES = {
     QuestionType.oral_answer.value,
 }
 
+_LINEAR_INEQUALITY_RE = re.compile(
+    r"(?P<a>[+\-]?(?:\d+(?:[.,]\d+)?|[.,]\d+)?)?\s*\*?\s*x"
+    r"\s*(?P<b>[+\-]\s*\(?\s*[+\-]?\d+(?:[.,]\d+)?\s*\)?)?"
+    r"\s*(?P<op><=|>=|<|>|≤|≥)\s*(?P<c>[+\-]?\d+(?:[.,]\d+)?)",
+    flags=re.IGNORECASE,
+)
+_X_RELATION_OPTION_RE = re.compile(
+    r"^\s*x\s*(?P<op><=|>=|<|>|≤|≥)\s*(?P<v>[+\-]?\d+(?:[.,]\d+)?)\s*$",
+    flags=re.IGNORECASE,
+)
+
 
 def normalize_text(value: Any) -> str:
     text = re.sub(r"\s+", " ", str(value or "")).strip()
@@ -64,7 +75,11 @@ def normalize_choice_options(options: Any) -> list[str]:
     normalized: list[str] = []
     seen: set[str] = set()
     for option in options:
-        text = normalize_text(option)
+        if isinstance(option, dict):
+            option_value = option.get("text", option.get("value", ""))
+        else:
+            option_value = option
+        text = normalize_text(option_value)
         key = text.lower()
         if not text or key in seen:
             continue
@@ -94,6 +109,137 @@ def _build_options_json(options: list[str]) -> dict[str, Any]:
     return {
         "options": [{"id": idx + 1, "text": option} for idx, option in enumerate(options)]
     }
+
+
+def _normalize_ineq_operator(value: str) -> str:
+    return str(value or "").strip().replace("≤", "<=").replace("≥", ">=")
+
+
+def _reverse_ineq_operator(value: str) -> str:
+    normalized = _normalize_ineq_operator(value)
+    mapping = {
+        "<": ">",
+        "<=": ">=",
+        ">": "<",
+        ">=": "<=",
+    }
+    return mapping.get(normalized, normalized)
+
+
+def _parse_number(value: str) -> float | None:
+    text = str(value or "").strip().replace(",", ".")
+    if not text:
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def _parse_linear_inequality_from_prompt(prompt: str) -> tuple[str, float] | None:
+    match = _LINEAR_INEQUALITY_RE.search(prompt or "")
+    if match is None:
+        return None
+
+    raw_a = str(match.group("a") or "").strip().replace(" ", "")
+    if raw_a in {"", "+"}:
+        a = 1.0
+    elif raw_a == "-":
+        a = -1.0
+    else:
+        a = _parse_number(raw_a)
+        if a is None:
+            return None
+
+    raw_b = str(match.group("b") or "").strip().replace(" ", "")
+    if not raw_b:
+        b = 0.0
+    else:
+        cleaned_b = raw_b.replace("(", "").replace(")", "")
+        b = _parse_number(cleaned_b)
+        if b is None:
+            return None
+
+    c = _parse_number(str(match.group("c") or ""))
+    if c is None or a == 0:
+        return None
+
+    op = _normalize_ineq_operator(str(match.group("op") or ""))
+    threshold = (c - b) / a
+    if a < 0:
+        op = _reverse_ineq_operator(op)
+    return op, threshold
+
+
+def _satisfies_inequality(*, value: float, operator: str, threshold: float, eps: float = 1e-9) -> bool:
+    if operator == "<":
+        return value < threshold - eps
+    if operator == "<=":
+        return value <= threshold + eps
+    if operator == ">":
+        return value > threshold + eps
+    if operator == ">=":
+        return value >= threshold - eps
+    return False
+
+
+def _validate_single_choice_inequality_semantics(
+    *,
+    prompt: str,
+    options: list[str],
+    correct_option_ids: list[int],
+    issues: list[str],
+) -> None:
+    if len(options) < 2:
+        return
+
+    parsed_prompt = _parse_linear_inequality_from_prompt(prompt)
+    if parsed_prompt is None:
+        return
+    operator, threshold = parsed_prompt
+
+    numeric_values = [_parse_number(option) for option in options]
+    if all(value is not None for value in numeric_values):
+        satisfying_ids = [
+            idx + 1
+            for idx, option_value in enumerate(numeric_values)
+            if option_value is not None and _satisfies_inequality(value=option_value, operator=operator, threshold=threshold)
+        ]
+        if len(satisfying_ids) != 1:
+            issues.append("inequality single_choice must have exactly one satisfying numeric option")
+            return
+        if correct_option_ids and correct_option_ids[0] != satisfying_ids[0]:
+            issues.append("correct option id does not match inequality solution")
+        return
+
+    parsed_relations: list[tuple[str, float] | None] = []
+    for option in options:
+        match = _X_RELATION_OPTION_RE.match(normalize_text(option))
+        if match is None:
+            parsed_relations.append(None)
+            continue
+        rel_op = _normalize_ineq_operator(str(match.group("op") or ""))
+        rel_value = _parse_number(str(match.group("v") or ""))
+        if rel_value is None:
+            parsed_relations.append(None)
+            continue
+        parsed_relations.append((rel_op, rel_value))
+
+    if any(item is None for item in parsed_relations):
+        return
+
+    equivalent_ids = [
+        idx + 1
+        for idx, relation in enumerate(parsed_relations)
+        if relation is not None
+        and relation[0] == operator
+        and abs(relation[1] - threshold) <= 1e-6
+    ]
+    if len(equivalent_ids) != 1:
+        issues.append("inequality single_choice must have exactly one equivalent inequality option")
+        return
+    if correct_option_ids and correct_option_ids[0] != equivalent_ids[0]:
+        issues.append("correct option id does not match inequality solution")
 
 
 def build_question_content_hash(payload: dict[str, Any]) -> str:
@@ -180,6 +326,14 @@ def validate_question_payload(
             max_id = len(options)
             if any(option_id < 1 or option_id > max_id for option_id in correct_option_ids):
                 issues.append("correct option id is out of range")
+
+            if question_type == QuestionType.single_choice.value:
+                _validate_single_choice_inequality_semantics(
+                    prompt=prompt,
+                    options=options,
+                    correct_option_ids=correct_option_ids,
+                    issues=issues,
+                )
 
             prompt_lower = prompt.lower()
             asks_comma_in_sentence = (

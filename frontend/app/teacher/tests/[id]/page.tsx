@@ -257,6 +257,14 @@ export default function TeacherCustomTestResultsPage() {
 
               <section className={styles.tableWrap}>
                 <table className={styles.table}>
+                  <colgroup>
+                    <col className={styles.colName} />
+                    <col className={styles.colResult} />
+                    <col className={styles.colWarnings} />
+                    <col className={styles.colSubmitted} />
+                    <col className={styles.colGroup} />
+                    <col className={styles.colActions} />
+                  </colgroup>
                   <thead>
                     <tr>
                       <th>{t("Имя", "Аты")}</th>
@@ -264,12 +272,12 @@ export default function TeacherCustomTestResultsPage() {
                       <th>{t("Предупреждения", "Ескертулер")}</th>
                       <th>{t("Сдано", "Тапсырылды")}</th>
                       <th>{t("Группа", "Топ")}</th>
-                      <th />
+                      <th className={styles.actionColumn} />
                     </tr>
                   </thead>
                   <tbody>
                     {payload.students.map((student, index) => (
-                      <tr key={`${student.student_id}-${student.group_id}`}>
+                      <tr key={`${student.student_id}-${student.group_id}`} className={styles.studentRow}>
                         <td className={styles.nameCell}>
                           <span className={styles.index}>{index + 1}</span>
                           <span title={student.full_name}>{student.full_name}</span>
@@ -280,7 +288,7 @@ export default function TeacherCustomTestResultsPage() {
                         <td className={styles.groupNameCell}>
                           <span title={student.group_name}>{student.group_name}</span>
                         </td>
-                        <td>
+                        <td className={styles.rowActions}>
                           <button
                             type="button"
                             className={styles.openButton}

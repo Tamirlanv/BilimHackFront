@@ -2,6 +2,7 @@ import csv
 import io
 import logging
 import re
+import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -15,6 +16,7 @@ from app.models import (
     DifficultyLevel,
     Group,
     GroupInvitation,
+    GroupInviteLink,
     GroupMembership,
     InvitationStatus,
     PreferredLanguage,
@@ -34,6 +36,7 @@ from app.schemas.groups import (
     GroupMembersResponse,
     TeacherGroupCreateRequest,
     TeacherGroupCreateResponse,
+    TeacherGroupInviteLinkResponse,
     TeacherGroupUpdateRequest,
     TeacherGroupListItem,
     TeacherInvitationCreateRequest,
@@ -122,10 +125,11 @@ def create_group(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Группа с таким названием уже существует")
 
     student_ids = sorted(set(int(item) for item in payload.student_ids if int(item) > 0))
-    if len(student_ids) > settings.group_max_members:
+    max_members_limit = _effective_group_members_limit()
+    if len(student_ids) > max_members_limit:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"В группе может быть не более {settings.group_max_members} участников.",
+            detail=f"В группе может быть не более {max_members_limit} участников.",
         )
 
     if student_ids:
@@ -333,10 +337,11 @@ def send_invitation(
                 detail="Этот ученик уже состоит в выбранной группе.",
             )
         group_members_count = _count_group_members(db=db, group_id=target_group.id)
-        if group_members_count >= settings.group_max_members:
+        max_members_limit = _effective_group_members_limit()
+        if group_members_count >= max_members_limit:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"В группе уже максимум {settings.group_max_members} участников.",
+                detail=f"В группе уже максимум {max_members_limit} участников.",
             )
 
     existing_pending = db.scalar(
@@ -360,6 +365,43 @@ def send_invitation(
     db.commit()
     db.refresh(invitation)
     return _serialize_invitation(invitation)
+
+
+@router.post("/groups/{group_id}/invite-link", response_model=TeacherGroupInviteLinkResponse)
+def create_group_invite_link(
+    group_id: int,
+    db: DBSession,
+    current_user: User = Depends(require_role(UserRole.teacher)),
+) -> TeacherGroupInviteLinkResponse:
+    group = _get_teacher_group(db=db, teacher_id=current_user.id, group_id=group_id)
+    now = datetime.now(timezone.utc)
+
+    active_link = db.scalar(
+        select(GroupInviteLink)
+        .where(
+            GroupInviteLink.teacher_id == current_user.id,
+            GroupInviteLink.group_id == group.id,
+            GroupInviteLink.is_active.is_(True),
+        )
+        .order_by(GroupInviteLink.created_at.desc())
+    )
+    if active_link and active_link.expires_at and active_link.expires_at <= now:
+        active_link.is_active = False
+        active_link = None
+
+    if active_link is None:
+        active_link = GroupInviteLink(
+            teacher_id=current_user.id,
+            group_id=group.id,
+            token=_generate_group_invite_token(db=db),
+            is_active=True,
+        )
+        db.add(active_link)
+        db.flush()
+
+    db.commit()
+    db.refresh(active_link)
+    return _serialize_group_invite_link(link=active_link, group_name=group.name)
 
 
 @router.get("/invitations", response_model=list[TeacherInvitationResponse])
@@ -899,6 +941,26 @@ def _is_student_in_group(*, db: DBSession, student_id: int, group_id: int) -> bo
     return membership is not None
 
 
+def _effective_group_members_limit() -> int:
+    return max(30, int(settings.group_max_members or 0))
+
+
+def _generate_group_invite_token(*, db: DBSession) -> str:
+    for _ in range(12):
+        candidate = secrets.token_urlsafe(24)
+        exists = db.scalar(
+            select(GroupInviteLink.id).where(
+                GroupInviteLink.token == candidate,
+            )
+        )
+        if exists is None:
+            return candidate
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail="Не удалось создать ссылку приглашения. Попробуйте снова.",
+    )
+
+
 def _serialize_invitation(invitation: GroupInvitation) -> TeacherInvitationResponse:
     teacher_name = invitation.teacher.full_name or invitation.teacher.username
     return TeacherInvitationResponse(
@@ -913,6 +975,17 @@ def _serialize_invitation(invitation: GroupInvitation) -> TeacherInvitationRespo
         status=invitation.status,
         created_at=invitation.created_at,
         responded_at=invitation.responded_at,
+    )
+
+
+def _serialize_group_invite_link(*, link: GroupInviteLink, group_name: str) -> TeacherGroupInviteLinkResponse:
+    return TeacherGroupInviteLinkResponse(
+        token=link.token,
+        teacher_id=int(link.teacher_id),
+        group_id=int(link.group_id),
+        group_name=group_name,
+        is_active=bool(link.is_active),
+        expires_at=link.expires_at,
     )
 
 

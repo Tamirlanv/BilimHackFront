@@ -94,6 +94,10 @@ class User(Base):
         foreign_keys="GroupInvitation.teacher_id",
         cascade="all, delete-orphan",
     )
+    group_invite_links: Mapped[list[GroupInviteLink]] = relationship(
+        back_populates="teacher",
+        cascade="all, delete-orphan",
+    )
     received_invitations: Mapped[list[GroupInvitation]] = relationship(
         back_populates="student",
         foreign_keys="GroupInvitation.student_id",
@@ -142,6 +146,10 @@ class Group(Base):
     memberships: Mapped[list[GroupMembership]] = relationship(back_populates="group", cascade="all, delete-orphan")
     teacher: Mapped[User | None] = relationship(back_populates="groups_created")
     invitations: Mapped[list[GroupInvitation]] = relationship(back_populates="group")
+    invite_links: Mapped[list[GroupInviteLink]] = relationship(
+        back_populates="group",
+        cascade="all, delete-orphan",
+    )
     custom_test_links: Mapped[list[TeacherAuthoredTestGroup]] = relationship(
         back_populates="group",
         cascade="all, delete-orphan",
@@ -174,6 +182,28 @@ class GroupInvitation(Base):
     teacher: Mapped[User] = relationship(back_populates="sent_invitations", foreign_keys=[teacher_id])
     student: Mapped[User] = relationship(back_populates="received_invitations", foreign_keys=[student_id])
     group: Mapped[Group | None] = relationship(back_populates="invitations")
+
+
+class GroupInviteLink(Base):
+    __tablename__ = "group_invite_links"
+    __table_args__ = (
+        UniqueConstraint("token", name="uq_group_invite_link_token"),
+        Index("ix_group_invite_links_group_id", "group_id"),
+        Index("ix_group_invite_links_teacher_id", "teacher_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    teacher_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    group_id: Mapped[int] = mapped_column(ForeignKey("groups.id", ondelete="CASCADE"), nullable=False)
+    token: Mapped[str] = mapped_column(String(128), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    uses_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    teacher: Mapped[User] = relationship(back_populates="group_invite_links")
+    group: Mapped[Group] = relationship(back_populates="invite_links")
 
 
 class TeacherAuthoredTestGroup(Base):

@@ -9,6 +9,7 @@ from app.core.deps import DBSession, get_current_user
 from app.models import (
     Group,
     GroupInvitation,
+    GroupInviteLink,
     GroupMembership,
     InvitationStatus,
     PreferredLanguage,
@@ -16,7 +17,12 @@ from app.models import (
     User,
     UserRole,
 )
-from app.schemas.profile import ProfileInvitationResponse, ProfileResponse
+from app.schemas.profile import (
+    GroupInviteAcceptResponse,
+    GroupInvitePreviewResponse,
+    ProfileInvitationResponse,
+    ProfileResponse,
+)
 
 router = APIRouter(prefix="/profile", tags=["profile"])
 
@@ -71,10 +77,11 @@ def accept_invitation(
         is_same_group = bool(current_membership and current_membership.group_id == target_group.id)
         if not is_same_group:
             members_count = db.scalar(select(func.count(GroupMembership.id)).where(GroupMembership.group_id == target_group.id)) or 0
-            if int(members_count) >= settings.group_max_members:
+            max_members_limit = _effective_group_members_limit()
+            if int(members_count) >= max_members_limit:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"В группе уже максимум {settings.group_max_members} участников.",
+                    detail=f"В группе уже максимум {max_members_limit} участников.",
                 )
 
         db.execute(delete(GroupMembership).where(GroupMembership.student_id == current_user.id))
@@ -94,6 +101,94 @@ def accept_invitation(
     db.commit()
     db.refresh(invitation)
     return _serialize_profile_invitation(invitation)
+
+
+@router.get("/group-invites/{token}", response_model=GroupInvitePreviewResponse)
+def preview_group_invite(
+    token: str,
+    db: DBSession,
+    current_user: User = Depends(get_current_user),
+) -> GroupInvitePreviewResponse:
+    if current_user.role != UserRole.student:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Приглашения доступны только ученикам.")
+
+    invite_link = _get_active_group_invite_link(db=db, token=token)
+    if invite_link.group is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Группа приглашения не найдена.")
+    if invite_link.teacher is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Преподаватель приглашения не найден.")
+
+    max_members_limit = _effective_group_members_limit()
+    members_count = _count_group_members(db=db, group_id=invite_link.group_id)
+    already_member = _is_student_in_group(db=db, student_id=current_user.id, group_id=invite_link.group_id)
+
+    return GroupInvitePreviewResponse(
+        token=invite_link.token,
+        teacher_id=int(invite_link.teacher_id),
+        teacher_name=(invite_link.teacher.full_name or invite_link.teacher.username),
+        group_id=int(invite_link.group_id),
+        group_name=invite_link.group.name,
+        already_member=already_member,
+        members_count=members_count,
+        members_limit=max_members_limit,
+    )
+
+
+@router.post("/group-invites/{token}/accept", response_model=GroupInviteAcceptResponse)
+def accept_group_invite_by_token(
+    token: str,
+    db: DBSession,
+    current_user: User = Depends(get_current_user),
+) -> GroupInviteAcceptResponse:
+    if current_user.role != UserRole.student:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Приглашения доступны только ученикам.")
+
+    invite_link = _get_active_group_invite_link(db=db, token=token)
+    if invite_link.group is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Группа приглашения не найдена.")
+    if invite_link.teacher is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Преподаватель приглашения не найден.")
+
+    target_group = invite_link.group
+    already_member = _is_student_in_group(db=db, student_id=current_user.id, group_id=target_group.id)
+
+    joined = False
+    if not already_member:
+        max_members_limit = _effective_group_members_limit()
+        members_count = _count_group_members(db=db, group_id=target_group.id)
+        if members_count >= max_members_limit:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"В группе уже максимум {max_members_limit} участников.",
+            )
+
+        db.execute(delete(GroupMembership).where(GroupMembership.student_id == current_user.id))
+        db.add(GroupMembership(student_id=current_user.id, group_id=target_group.id))
+
+        profile = db.get(StudentProfile, current_user.id)
+        if not profile:
+            profile = StudentProfile(
+                user_id=current_user.id,
+                preferred_language=PreferredLanguage.ru,
+            )
+            db.add(profile)
+        profile.group_id = target_group.id
+        joined = True
+
+    invite_link.uses_count = int(invite_link.uses_count or 0) + 1
+    invite_link.last_used_at = datetime.now(timezone.utc)
+
+    db.commit()
+
+    return GroupInviteAcceptResponse(
+        token=invite_link.token,
+        teacher_id=int(invite_link.teacher_id),
+        teacher_name=(invite_link.teacher.full_name or invite_link.teacher.username),
+        group_id=int(invite_link.group_id),
+        group_name=target_group.name,
+        already_member=already_member,
+        joined=joined,
+    )
 
 
 @router.post("/invitations/{invitation_id}/decline", response_model=ProfileInvitationResponse)
@@ -173,3 +268,50 @@ def _serialize_profile_invitation_for_teacher(invitation: GroupInvitation) -> Pr
         created_at=invitation.created_at,
         responded_at=invitation.responded_at,
     )
+
+
+def _effective_group_members_limit() -> int:
+    return max(30, int(settings.group_max_members or 0))
+
+
+def _count_group_members(*, db: DBSession, group_id: int) -> int:
+    value = db.scalar(select(func.count(GroupMembership.id)).where(GroupMembership.group_id == group_id))
+    return int(value or 0)
+
+
+def _is_student_in_group(*, db: DBSession, student_id: int, group_id: int) -> bool:
+    membership = db.scalar(
+        select(GroupMembership.id).where(
+            GroupMembership.student_id == student_id,
+            GroupMembership.group_id == group_id,
+        )
+    )
+    return membership is not None
+
+
+def _get_active_group_invite_link(*, db: DBSession, token: str) -> GroupInviteLink:
+    normalized_token = token.strip()
+    if not normalized_token:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ссылка приглашения недействительна.")
+
+    invite_link = db.scalar(
+        select(GroupInviteLink)
+        .options(
+            joinedload(GroupInviteLink.teacher),
+            joinedload(GroupInviteLink.group),
+        )
+        .where(
+            GroupInviteLink.token == normalized_token,
+            GroupInviteLink.is_active.is_(True),
+        )
+    )
+    if not invite_link:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ссылка приглашения недействительна.")
+
+    now = datetime.now(timezone.utc)
+    if invite_link.expires_at and invite_link.expires_at <= now:
+        invite_link.is_active = False
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Срок действия ссылки истёк.")
+
+    return invite_link

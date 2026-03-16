@@ -1,5 +1,7 @@
 import {
   AuthResponse,
+  GroupInviteAcceptResponse,
+  GroupInvitePreview,
   GroupAssignedTest,
   GroupAnalytics,
   HistoryItem,
@@ -12,6 +14,7 @@ import {
   TeacherCustomTest,
   TeacherCustomTestDetails,
   TeacherGroup,
+  TeacherGroupInviteLink,
   TeacherGroupMembers,
   TeacherInvitation,
   GroupWeakTopics,
@@ -929,6 +932,12 @@ export function sendTeacherInvitation(token: string, body: { username: string; g
   });
 }
 
+export function createTeacherGroupInviteLink(token: string, groupId: number) {
+  return apiRequest<TeacherGroupInviteLink>(`/teacher/groups/${groupId}/invite-link`, {
+    method: "POST",
+  }, token);
+}
+
 export function getTeacherInvitations(token: string) {
   return cachedRequest(
     "teacher:invitations",
@@ -1126,6 +1135,21 @@ export function respondInvitation(
   action: "accept" | "decline",
 ) {
   return apiRequest<ProfileInvitation>(`/profile/invitations/${invitationId}/${action}`, {
+    method: "POST",
+  }, token).then((payload) => {
+    invalidateProfileCache();
+    invalidateStudentCaches();
+    invalidateTeacherCache({ clearAllGroups: true });
+    return payload;
+  });
+}
+
+export function previewGroupInvite(token: string, inviteToken: string) {
+  return apiRequest<GroupInvitePreview>(`/profile/group-invites/${encodeURIComponent(inviteToken)}`, {}, token);
+}
+
+export function acceptGroupInviteByToken(token: string, inviteToken: string) {
+  return apiRequest<GroupInviteAcceptResponse>(`/profile/group-invites/${encodeURIComponent(inviteToken)}/accept`, {
     method: "POST",
   }, token).then((payload) => {
     invalidateProfileCache();

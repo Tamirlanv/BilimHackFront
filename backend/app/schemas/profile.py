@@ -16,6 +16,27 @@ class ProfileInvitationResponse(BaseModel):
     responded_at: datetime | None
 
 
+class GroupInvitePreviewResponse(BaseModel):
+    token: str
+    teacher_id: int
+    teacher_name: str
+    group_id: int
+    group_name: str
+    already_member: bool
+    members_count: int
+    members_limit: int
+
+
+class GroupInviteAcceptResponse(BaseModel):
+    token: str
+    teacher_id: int
+    teacher_name: str
+    group_id: int
+    group_name: str
+    already_member: bool
+    joined: bool
+
+
 class ProfileResponse(BaseModel):
     id: int
     role: UserRole

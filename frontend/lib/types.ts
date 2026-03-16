@@ -222,6 +222,15 @@ export interface TeacherInvitation {
   responded_at?: string | null;
 }
 
+export interface TeacherGroupInviteLink {
+  token: string;
+  teacher_id: number;
+  group_id: number;
+  group_name: string;
+  is_active: boolean;
+  expires_at?: string | null;
+}
+
 export type TeacherCustomAnswerType = "choice" | "free_text";
 
 export interface TeacherCustomGroupBrief {
@@ -340,6 +349,27 @@ export interface ProfileInvitation {
   status: InvitationStatus;
   created_at: string;
   responded_at?: string | null;
+}
+
+export interface GroupInvitePreview {
+  token: string;
+  teacher_id: number;
+  teacher_name: string;
+  group_id: number;
+  group_name: string;
+  already_member: boolean;
+  members_count: number;
+  members_limit: number;
+}
+
+export interface GroupInviteAcceptResponse {
+  token: string;
+  teacher_id: number;
+  teacher_name: string;
+  group_id: number;
+  group_name: string;
+  already_member: boolean;
+  joined: boolean;
 }
 
 export interface ProfileData {

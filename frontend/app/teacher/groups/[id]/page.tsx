@@ -9,6 +9,7 @@ import AuthGuard from "@/components/AuthGuard";
 import Button from "@/components/ui/Button";
 import {
   cancelTeacherInvitation,
+  createTeacherGroupInviteLink,
   deleteTeacherGroup,
   getTeacherGroupMembers,
   getTeacherInvitations,
@@ -18,6 +19,7 @@ import {
 } from "@/lib/api";
 import { getToken } from "@/lib/auth";
 import { tr, useUiLanguage } from "@/lib/i18n";
+import { toast } from "@/lib/toast";
 import { TeacherGroupMembers, TeacherInvitation } from "@/lib/types";
 import { assetPaths } from "@/src/assets";
 import styles from "@/app/teacher/groups/[id]/group-detail.module.css";
@@ -49,6 +51,7 @@ export default function TeacherGroupDetailPage() {
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
   const [inviteUsername, setInviteUsername] = useState("");
   const [inviteLoading, setInviteLoading] = useState(false);
+  const [inviteLinkLoading, setInviteLinkLoading] = useState(false);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [settingsName, setSettingsName] = useState("");
   const [settingsLoading, setSettingsLoading] = useState(false);
@@ -132,6 +135,38 @@ export default function TeacherGroupDetailPage() {
       setError(err instanceof Error ? err.message : t("Не удалось отправить приглашение", "Шақыру жіберу мүмкін болмады"));
     } finally {
       setInviteLoading(false);
+    }
+  };
+
+  const copyInviteLink = async () => {
+    const token = getToken();
+    if (!token || !Number.isFinite(groupId)) return;
+    try {
+      setInviteLinkLoading(true);
+      setError("");
+      setSuccess("");
+      const payload = await createTeacherGroupInviteLink(token, groupId);
+      const inviteUrl = `${window.location.origin}/dashboard?groupInvite=${encodeURIComponent(payload.token)}`;
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(inviteUrl);
+      } else {
+        const textarea = document.createElement("textarea");
+        textarea.value = inviteUrl;
+        textarea.style.position = "fixed";
+        textarea.style.left = "-9999px";
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+      }
+      toast.success(t("Ссылка скопирована", "Сілтеме көшірілді"), 5000);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : t("Не удалось скопировать ссылку", "Сілтемені көшіру мүмкін болмады");
+      setError(message);
+      toast.error(message, 5000);
+    } finally {
+      setInviteLinkLoading(false);
     }
   };
 
@@ -424,6 +459,15 @@ export default function TeacherGroupDetailPage() {
                 </Button>
                 <Button block variant="ghost" onClick={() => setInviteModalOpen(false)}>{t("Отмена", "Бас тарту")}</Button>
               </div>
+              <button
+                type="button"
+                className={styles.copyInviteButton}
+                onClick={copyInviteLink}
+                disabled={inviteLinkLoading}
+              >
+                <img src={assetPaths.icons.attachFile} alt="" aria-hidden="true" />
+                <span>{inviteLinkLoading ? t("Копируем...", "Көшірілуде...") : t("Копировать ссылку", "Сілтемені көшіру")}</span>
+              </button>
             </section>
           </div>
         )}

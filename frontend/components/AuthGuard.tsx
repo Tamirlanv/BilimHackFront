@@ -25,7 +25,12 @@ export default function AuthGuard({ roles, children }: AuthGuardProps) {
     const user = getUser();
 
     if (!token || !user) {
-      router.replace("/login");
+      const nextPath =
+        typeof window !== "undefined"
+          ? `${window.location.pathname || "/"}${window.location.search || ""}`
+          : "/";
+      const encodedNext = encodeURIComponent(nextPath);
+      router.replace(`/login?next=${encodedNext}`);
       return;
     }
 

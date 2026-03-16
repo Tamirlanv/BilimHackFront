@@ -60,3 +60,12 @@ class TeacherInvitationResponse(BaseModel):
     status: InvitationStatus
     created_at: datetime
     responded_at: datetime | None
+
+
+class TeacherGroupInviteLinkResponse(BaseModel):
+    token: str
+    teacher_id: int
+    group_id: int
+    group_name: str
+    is_active: bool
+    expires_at: datetime | None

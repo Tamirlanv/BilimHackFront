@@ -293,6 +293,33 @@
   width: 100%;
 }
 
+.copyInviteButton {
+  border: 0;
+  background: transparent;
+  color: #6a63f5;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 38px;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 500;
+  padding: 0;
+}
+
+.copyInviteButton img {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+}
+
+.copyInviteButton:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
 .deleteGroupAction {
   border: 0;
   background: transparent;
@@ -446,7 +473,8 @@
   .invitationCard p,
   .status,
   .openLink,
-  .emptyInvitations p {
+  .emptyInvitations p,
+  .copyInviteButton {
     font-size: 12px;
     white-space: normal;
   }

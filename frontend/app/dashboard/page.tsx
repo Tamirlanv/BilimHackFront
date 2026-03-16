@@ -6,10 +6,16 @@ import { useEffect, useMemo, useState } from "react";
 import AppShell from "@/components/AppShell";
 import AuthGuard from "@/components/AuthGuard";
 import Button from "@/components/ui/Button";
-import { generateMistakesTest, getDashboard } from "@/lib/api";
+import {
+  acceptGroupInviteByToken,
+  generateMistakesTest,
+  getDashboard,
+  previewGroupInvite,
+} from "@/lib/api";
 import { getToken } from "@/lib/auth";
 import { tr, uiLocale, useUiLanguage } from "@/lib/i18n";
-import { HistoryItem, StudentProgress } from "@/lib/types";
+import { GroupInvitePreview, HistoryItem, StudentProgress } from "@/lib/types";
+import { toast } from "@/lib/toast";
 import { assetPaths } from "@/src/assets";
 import styles from "@/app/dashboard/dashboard.module.css";
 
@@ -34,6 +40,11 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [launchingMistakes, setLaunchingMistakes] = useState(false);
   const [error, setError] = useState("");
+  const [invitePreviewData, setInvitePreviewData] = useState<GroupInvitePreview | null>(null);
+  const [inviteLoading, setInviteLoading] = useState(false);
+  const [inviteActionLoading, setInviteActionLoading] = useState(false);
+  const [inviteError, setInviteError] = useState("");
+  const [groupInviteToken, setGroupInviteToken] = useState("");
 
   useEffect(() => {
     const token = getToken();
@@ -47,6 +58,31 @@ export default function DashboardPage() {
       .catch((err) => setError(err instanceof Error ? err.message : t("Не удалось загрузить данные главной страницы", "Басты бет деректерін жүктеу мүмкін болмады")))
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const parsed = new URLSearchParams(window.location.search).get("groupInvite") || "";
+    setGroupInviteToken(parsed.trim());
+  }, []);
+
+  useEffect(() => {
+    const token = getToken();
+    if (!token || !groupInviteToken) {
+      setInvitePreviewData(null);
+      setInviteError("");
+      return;
+    }
+
+    setInviteLoading(true);
+    setInviteError("");
+    previewGroupInvite(token, groupInviteToken)
+      .then((payload) => setInvitePreviewData(payload))
+      .catch((err) => {
+        setInvitePreviewData(null);
+        setInviteError(err instanceof Error ? err.message : t("Не удалось проверить приглашение", "Шақыруды тексеру мүмкін болмады"));
+      })
+      .finally(() => setInviteLoading(false));
+  }, [groupInviteToken]);
 
   const recentAttempts = useMemo(() => history.slice(0, 3), [history]);
   const bestAttempt = useMemo(
@@ -106,6 +142,39 @@ export default function DashboardPage() {
       setError(err instanceof Error ? err.message : t("Не удалось подготовить повторение ошибок", "Қателерді қайталау тестін дайындау мүмкін болмады"));
     } finally {
       setLaunchingMistakes(false);
+    }
+  };
+
+  const clearGroupInviteParam = () => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    params.delete("groupInvite");
+    const suffix = params.toString();
+    window.history.replaceState({}, "", suffix ? `/dashboard?${suffix}` : "/dashboard");
+    setGroupInviteToken("");
+  };
+
+  const acceptGroupInvite = async () => {
+    const token = getToken();
+    if (!token || !groupInviteToken) return;
+    try {
+      setInviteActionLoading(true);
+      setInviteError("");
+      const accepted = await acceptGroupInviteByToken(token, groupInviteToken);
+      toast.success(
+        accepted.already_member
+          ? t("Вы уже состоите в этой группе.", "Сіз осы топтасыз.")
+          : t("Приглашение принято.", "Шақыру қабылданды."),
+      );
+      const dashboardData = await getDashboard(token);
+      setProgress(dashboardData.progress);
+      setHistory(dashboardData.history);
+      clearGroupInviteParam();
+      setInvitePreviewData(null);
+    } catch (err) {
+      setInviteError(err instanceof Error ? err.message : t("Не удалось принять приглашение", "Шақыруды қабылдау мүмкін болмады"));
+    } finally {
+      setInviteActionLoading(false);
     }
   };
 
@@ -248,6 +317,46 @@ export default function DashboardPage() {
 
           <footer className={styles.footer}>oku.com.kz</footer>
         </div>
+
+        {groupInviteToken && (
+          <div className={styles.inviteOverlay} role="presentation" onClick={clearGroupInviteParam}>
+            <section className={styles.inviteModal} onClick={(event) => event.stopPropagation()}>
+              <div className={styles.inviteHeadingBlock}>
+                <h3>{t("Приглашение в группу", "Топқа шақыру")}</h3>
+              </div>
+              {inviteLoading ? (
+                <p className={styles.inviteStatusText}>{t("Проверяем приглашение...", "Шақыру тексерілуде...")}</p>
+              ) : inviteError ? (
+                <p className={styles.inviteStatusError}>{inviteError}</p>
+              ) : invitePreviewData ? (
+                <div className={styles.inviteInfoBlock}>
+                  <p className={styles.inviteInfoRow}>
+                    <span className={styles.inviteInfoLabel}>{t("Преподаватель", "Оқытушы")}:</span>{" "}
+                    <span className={styles.inviteInfoValue}>{invitePreviewData.teacher_name}</span>
+                  </p>
+                  <p className={styles.inviteInfoRow}>
+                    <span className={styles.inviteInfoLabel}>{t("Группа", "Топ")}:</span>{" "}
+                    <span className={styles.inviteInfoValue}>{invitePreviewData.group_name}</span>
+                  </p>
+                </div>
+              ) : (
+                <p className={styles.inviteStatusText}>{t("Ссылка приглашения недействительна.", "Шақыру сілтемесі жарамсыз.")}</p>
+              )}
+              <div className={styles.inviteActions}>
+                <Button
+                  block
+                  onClick={acceptGroupInvite}
+                  disabled={inviteLoading || !!inviteError || !invitePreviewData || inviteActionLoading}
+                >
+                  {inviteActionLoading ? t("Принимаем...", "Қабылдануда...") : t("Принять", "Қабылдау")}
+                </Button>
+                <Button block variant="ghost" onClick={clearGroupInviteParam}>
+                  {t("Отмена", "Бас тарту")}
+                </Button>
+              </div>
+            </section>
+          </div>
+        )}
       </AppShell>
     </AuthGuard>
   );
