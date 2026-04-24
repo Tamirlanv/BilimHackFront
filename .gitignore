@@ -11,3 +11,5 @@ node_modules/
 .next/
 
 .DS_Store
+.vercel
+Отчёты/
