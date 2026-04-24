@@ -41,8 +41,6 @@ jobs:
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: |
           set -euo pipefail
-
-          cd frontend
           npx --yes vercel@latest deploy --prod --yes --token "${VERCEL_TOKEN}"
 
   redeploy-backend-render:
